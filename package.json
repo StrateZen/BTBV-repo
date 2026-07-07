@@ -1,0 +1,15 @@
+{
+  "name": "room-energy-organizer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MVP web app for room organization, emotional progress, energy alignment, Emily review, and GoHighLevel automation.",
+  "scripts": {
+    "dev": "node src/server.mjs",
+    "start": "node src/server.mjs",
+    "test": "node --test src/tests/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
