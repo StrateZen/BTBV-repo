@@ -100,20 +100,31 @@ docker run -p 3000:3000 -v reo-data:/app/data --env-file .env room-energy-organi
 
 Use `HOST=0.0.0.0`, `PORT=3000`, and `DATA_FILE=/app/data/db.json` in Docker. Mount `/app/data` so client records, sync logs, assistant items, warranties, and email logs persist across restarts.
 
-For Hostinger VPS Docker Manager, this repo now includes [docker-compose.yml](/Users/dankonzen/Documents/BTBV-DEVOPS-/docker-compose.yml). The shortest deployment path is:
+For Hostinger VPS Docker Manager, this repo now includes [docker-compose.yml](/Users/dankonzen/Documents/BTBV-DEVOPS-/docker-compose.yml) and [deploy/Caddyfile](/Users/dankonzen/Documents/BTBV-DEVOPS-/deploy/Caddyfile). The compose stack now runs the app behind Caddy on ports `80` and `443`, so the public demo URL should be your domain rather than raw port `3000`.
+
+The shortest deployment path is:
 
 1. Push this repository to GitHub.
 2. Create a Hostinger VPS with the Docker template installed.
 3. In hPanel, open `VPS -> Manage -> Docker Manager`.
-4. Deploy the project with `Compose from URL`, `Compose manually`, or the Hostinger GitHub Action.
-5. Set production environment variables in Docker Manager or your CI pipeline, including:
+4. Point your domain's `A` record to the VPS IP address.
+5. Deploy the project with `Compose from URL`, `Compose manually`, or the Hostinger GitHub Action.
+6. Set production environment variables in Docker Manager or your CI pipeline, including:
+   - `APP_DOMAIN`
+   - `APP_SEED_MODE=blank`
+   - `ENABLE_DEMO_LOGIN=false`
    - `OPENAI_API_KEY`
    - `GHL_API_KEY`
    - `GHL_LOCATION_ID`
    - `EMAIL_DELIVERY_WEBHOOK_URL`
-6. Keep `/app/data` on a persistent Docker volume so `data/db.json` survives restarts.
+   - `INITIAL_ADMIN_EMAIL`
+   - `INITIAL_ADMIN_PASSWORD`
+   - `INITIAL_EMILY_EMAIL`
+   - `INITIAL_EMILY_PASSWORD`
+7. Keep `/app/data` on a persistent Docker volume so `data/db.json` survives restarts.
+8. After the stack is healthy, open `https://your-domain.example`.
 
-If you want a custom domain on Hostinger VPS, route the app through Traefik or another reverse proxy rather than exposing raw port `3000` directly.
+If you want local sample data and demo login buttons during development, set `APP_SEED_MODE=demo` and `ENABLE_DEMO_LOGIN=true` in your local `.env`.
 
 To push the current `main` branch to GitHub from this repo, run:
 

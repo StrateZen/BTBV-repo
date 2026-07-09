@@ -23,7 +23,14 @@ import {
   normalizeReminderEmails,
   warrantyReminderScheduleKey
 } from "../domain/reminders.mjs";
-import { buildSeedData, migrateSeedData } from "../data/seed.mjs";
+import {
+  buildInitialData,
+  buildSeedData,
+  demoLoginEnabled,
+  ensureBootstrapUsers,
+  migrateSeedData,
+  resolveSeedMode
+} from "../data/seed.mjs";
 import { loadDefaultEnvFiles, loadEnvFile } from "../config/env.mjs";
 
 test("membership permissions gate core features by tier", () => {
@@ -359,7 +366,7 @@ test("seed migration backfills staff admin, timezones, internal notes, and remin
   const { data, changed } = migrateSeedData(legacy);
 
   assert.equal(changed, true);
-  assert.equal(data.meta.version, 9);
+  assert.equal(data.meta.version, 10);
   assert.ok(data.users.find((user) => user.email === "staff@example.com" && user.role === "admin"));
   assert.equal(data.clientProfiles[0].timezone, "America/Phoenix");
   assert.match(data.clientProfiles[0].internal_notes, /gentle follow-up/i);
@@ -369,6 +376,33 @@ test("seed migration backfills staff admin, timezones, internal notes, and remin
   assert.deepEqual(data.warranties[0].reminder_emails, ["ava@example.com"]);
   assert.equal(data.warranties[0].reminder_timezone, "America/Phoenix");
   assert.equal(data.warranties[0].reminder_sent_for, null);
+});
+
+test("production seed mode defaults to blank data with no demo logins", () => {
+  assert.equal(resolveSeedMode({ nodeEnv: "production", seedMode: "" }), "blank");
+  assert.equal(demoLoginEnabled({ enabled: "", seedMode: "blank" }), false);
+
+  const data = buildInitialData({ nodeEnv: "production", seedMode: "" });
+  assert.equal(data.meta.seed_mode, "blank");
+  assert.deepEqual(data.users, []);
+  assert.deepEqual(data.rooms, []);
+});
+
+test("bootstrap users can be created from environment without demo seed data", () => {
+  const data = buildInitialData({ nodeEnv: "production", seedMode: "blank" });
+  const changed = ensureBootstrapUsers(data, {
+    INITIAL_ADMIN_EMAIL: "staff@builttobevisible.com",
+    INITIAL_ADMIN_PASSWORD: "staffpass1",
+    INITIAL_ADMIN_NAME: "Emily Staff",
+    INITIAL_EMILY_EMAIL: "emily@builttobevisible.com",
+    INITIAL_EMILY_PASSWORD: "emilypass1",
+    INITIAL_EMILY_NAME: "Emily Ransom"
+  });
+
+  assert.equal(changed, true);
+  assert.ok(data.users.find((user) => user.email === "staff@builttobevisible.com" && user.role === "admin"));
+  assert.ok(data.users.find((user) => user.email === "emily@builttobevisible.com" && user.role === "emily"));
+  assert.equal(data.users.some((user) => user.email === "ava@example.com"), false);
 });
 
 test("GHL helpers extract contact ids and config status safely", () => {

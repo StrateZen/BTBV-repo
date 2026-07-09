@@ -922,6 +922,9 @@ function render() {
 
 function renderAuth() {
   const isLogin = state.authMode === "login";
+  const demoLoginEnabled = Boolean(state.bootstrap?.appConfig?.demoLoginEnabled);
+  const defaultEmail = demoLoginEnabled ? "ava@example.com" : "";
+  const defaultPassword = demoLoginEnabled ? "demo123" : "";
   return `
     <main class="auth-wrap">
       <section class="auth-visual">
@@ -945,14 +948,18 @@ function renderAuth() {
           ${
             isLogin
               ? `<form class="stack" data-form="login">
-                  <label>Email <input name="email" type="email" value="ava@example.com" required /></label>
-                  <label>Password <input name="password" type="password" value="demo123" required /></label>
+                  <label>Email <input name="email" type="email" value="${escapeHtml(defaultEmail)}" required /></label>
+                  <label>Password <input name="password" type="password" value="${escapeHtml(defaultPassword)}" required /></label>
                   <button class="btn sage" type="submit" ${state.busy ? "disabled" : ""}>Sign in</button>
-                  <div class="button-row">
-                    <button class="btn small ghost" data-action="demo-login" data-email="ava@example.com" type="button">Client demo</button>
-                    <button class="btn small ghost" data-action="demo-login" data-email="emily@example.com" type="button">Emily demo</button>
-                    <button class="btn small ghost" data-action="demo-login" data-email="staff@example.com" type="button">Staff demo</button>
-                  </div>
+                  ${
+                    demoLoginEnabled
+                      ? `<div class="button-row">
+                          <button class="btn small ghost" data-action="demo-login" data-email="ava@example.com" type="button">Client demo</button>
+                          <button class="btn small ghost" data-action="demo-login" data-email="emily@example.com" type="button">Emily demo</button>
+                          <button class="btn small ghost" data-action="demo-login" data-email="staff@example.com" type="button">Staff demo</button>
+                        </div>`
+                      : ""
+                  }
                 </form>`
               : `<form class="stack" data-form="register">
                   <label>Name <input name="name" required /></label>

@@ -3,7 +3,26 @@ import { calculateRoomTransformation } from "../domain/scoring.mjs";
 import { deflateSync } from "node:zlib";
 
 const now = new Date().toISOString();
-export const SEED_VERSION = 9;
+export const SEED_VERSION = 10;
+const DATA_COLLECTIONS = [
+  "users",
+  "clientProfiles",
+  "rooms",
+  "roomPhotos",
+  "emotionEntries",
+  "aiRecommendations",
+  "emilyReviews",
+  "tasks",
+  "followUps",
+  "roomScores",
+  "ghlSyncLogs",
+  "emailLogs",
+  "assistantItems",
+  "warranties",
+  "freedomEntries",
+  "communityPosts",
+  "communityComments"
+];
 
 export function buildSeedData() {
   const users = [
@@ -476,7 +495,7 @@ export function buildSeedData() {
   ];
 
   return {
-    meta: { version: SEED_VERSION, seeded_at: now },
+    meta: { version: SEED_VERSION, seeded_at: now, seed_mode: "demo" },
     users,
     clientProfiles,
     rooms,
@@ -497,6 +516,29 @@ export function buildSeedData() {
   };
 }
 
+export function buildBlankData() {
+  return {
+    meta: { version: SEED_VERSION, seeded_at: now, seed_mode: "blank" },
+    ...Object.fromEntries(DATA_COLLECTIONS.map((collection) => [collection, []]))
+  };
+}
+
+export function resolveSeedMode({ seedMode = process.env.APP_SEED_MODE, nodeEnv = process.env.NODE_ENV } = {}) {
+  const normalized = String(seedMode || "").trim().toLowerCase();
+  if (["demo", "sample", "seeded"].includes(normalized)) return "demo";
+  if (["blank", "empty", "clean", "production"].includes(normalized)) return "blank";
+  return nodeEnv === "production" ? "blank" : "demo";
+}
+
+export function buildInitialData(options = {}) {
+  return resolveSeedMode(options) === "demo" ? buildSeedData() : buildBlankData();
+}
+
+export function demoLoginEnabled({ enabled = process.env.ENABLE_DEMO_LOGIN, seedMode = resolveSeedMode() } = {}) {
+  if (enabled == null || String(enabled).trim() === "") return seedMode === "demo";
+  return parseBooleanEnv(enabled);
+}
+
 export function migrateSeedData(data) {
   if (!data || Number(data.meta?.version || 0) >= SEED_VERSION) return { data, changed: false };
 
@@ -504,21 +546,13 @@ export function migrateSeedData(data) {
   data.meta = {
     ...(data.meta || {}),
     version: SEED_VERSION,
+    seed_mode: data.meta?.seed_mode || inferSeedModeFromData(data),
     migrated_at: now
   };
 
-  data.users = mergeSeedRecords(data.users || [], seed.users);
-  data.clientProfiles = mergeSeedRecords(data.clientProfiles || [], seed.clientProfiles);
-  data.rooms = mergeSeedRecords(data.rooms || [], seed.rooms);
-  data.emotionEntries = mergeSeedRecords(data.emotionEntries || [], seed.emotionEntries);
-  data.roomScores = mergeSeedRecords(data.roomScores || [], seed.roomScores);
-  data.roomPhotos = mergeSeedRecords(data.roomPhotos || [], seed.roomPhotos);
-  data.assistantItems = mergeSeedRecords(data.assistantItems || [], seed.assistantItems);
-  data.warranties = mergeSeedRecords(data.warranties || [], seed.warranties);
-  data.freedomEntries = mergeSeedRecords(data.freedomEntries || [], seed.freedomEntries);
-  data.communityPosts = mergeSeedRecords(data.communityPosts || [], seed.communityPosts);
-  data.communityComments = mergeSeedRecords(data.communityComments || [], seed.communityComments);
-  data.emailLogs ||= [];
+  for (const collection of DATA_COLLECTIONS) {
+    data[collection] ||= [];
+  }
 
   const kitchenAi = data.aiRecommendations?.find((recommendation) => recommendation.id === "ai_kitchen");
   const seedKitchenAi = seed.aiRecommendations.find((recommendation) => recommendation.id === "ai_kitchen");
@@ -535,8 +569,9 @@ export function migrateSeedData(data) {
   }
 
   for (const profile of data.clientProfiles || []) {
-    profile.internal_notes ??= "";
-    profile.timezone ||= "America/Phoenix";
+    const seedProfile = seed.clientProfiles.find((item) => item.id === profile.id);
+    profile.internal_notes ??= seedProfile?.internal_notes || "";
+    profile.timezone ||= seedProfile?.timezone || "America/Phoenix";
   }
 
   for (const item of data.assistantItems || []) {
@@ -555,11 +590,46 @@ export function migrateSeedData(data) {
   return { data, changed: true };
 }
 
-function mergeSeedRecords(current, additions) {
-  const replacements = new Map(additions.map((record) => [record.id, record]));
-  const currentIds = new Set(current.map((record) => record.id));
-  const refreshed = current.map((record) => (replacements.has(record.id) ? { ...record, ...replacements.get(record.id) } : record));
-  return [...refreshed, ...additions.filter((record) => !currentIds.has(record.id))];
+export function ensureBootstrapUsers(data, env = process.env) {
+  const configs = [
+    {
+      role: "admin",
+      name: env.INITIAL_ADMIN_NAME || "Emily Staff",
+      email: env.INITIAL_ADMIN_EMAIL,
+      password: env.INITIAL_ADMIN_PASSWORD
+    },
+    {
+      role: "emily",
+      name: env.INITIAL_EMILY_NAME || "Emily",
+      email: env.INITIAL_EMILY_EMAIL,
+      password: env.INITIAL_EMILY_PASSWORD
+    }
+  ];
+
+  let changed = false;
+  data.users ||= [];
+
+  for (const config of configs) {
+    const email = String(config.email || "").trim().toLowerCase();
+    const password = String(config.password || "");
+    if (!email || password.length < 6) continue;
+
+    const existing = data.users.find((user) => String(user.email || "").trim().toLowerCase() === email);
+    if (existing) continue;
+
+    data.users.push({
+      id: bootstrapUserId(config.role, email),
+      name: config.name,
+      email,
+      role: config.role,
+      password_hash: hashPassword(password),
+      created_at: now,
+      updated_at: now
+    });
+    changed = true;
+  }
+
+  return changed;
 }
 
 function defaultReminderEmails(data, clientId) {
@@ -571,6 +641,20 @@ function defaultReminderEmails(data, clientId) {
 function clientTimezone(data, clientId) {
   const profile = (data.clientProfiles || []).find((item) => item.id === clientId);
   return profile?.timezone || "America/Phoenix";
+}
+
+function inferSeedModeFromData(data) {
+  return (data.users || []).some((user) => ["ava@example.com", "emily@example.com", "staff@example.com"].includes(user.email))
+    ? "demo"
+    : "blank";
+}
+
+function bootstrapUserId(role, email) {
+  return `bootstrap_${role}_${email.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "").toLowerCase()}`;
+}
+
+function parseBooleanEnv(value) {
+  return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase());
 }
 
 function before(id, roomId, emotions, comments, stress, clutter, energy, workbookScores = {}) {

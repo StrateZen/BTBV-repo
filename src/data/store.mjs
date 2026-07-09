@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { buildSeedData, migrateSeedData } from "./seed.mjs";
+import { buildInitialData, ensureBootstrapUsers, migrateSeedData } from "./seed.mjs";
 
 const COLLECTIONS = [
   "users",
@@ -30,20 +30,24 @@ export class JsonStore {
 
   async init() {
     await mkdir(path.dirname(this.filePath), { recursive: true });
+    let changed = false;
     try {
       this.data = JSON.parse(await readFile(this.filePath, "utf8"));
       const migration = migrateSeedData(this.data);
       this.data = migration.data;
-      if (migration.changed) await this.save();
+      changed = migration.changed;
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
-      this.data = buildSeedData();
-      await this.save();
+      this.data = buildInitialData();
+      changed = true;
     }
 
     for (const collection of COLLECTIONS) {
       if (!Array.isArray(this.data[collection])) this.data[collection] = [];
     }
+
+    changed = ensureBootstrapUsers(this.data) || changed;
+    if (changed) await this.save();
 
     return this;
   }

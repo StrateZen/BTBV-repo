@@ -38,6 +38,7 @@ import {
   normalizeReminderEmails,
   warrantyReminderScheduleKey
 } from "./domain/reminders.mjs";
+import { demoLoginEnabled, resolveSeedMode } from "./data/seed.mjs";
 import { createStore } from "./data/store.mjs";
 import { handleAppEvent, isGhlConfigured, syncAllContacts, syncContact, syncTags, triggerWorkflow } from "./integrations/ghl.mjs";
 import { draftRecommendationEmail, sendClientEmail, sendEmails } from "./integrations/email.mjs";
@@ -223,7 +224,11 @@ async function handleApi(req, res, url) {
       btbvSupportTracks: BTBV_SUPPORT_TRACKS,
       btbvDifferentiators: BTBV_DIFFERENTIATORS,
       competitorServiceOpportunities: COMPETITOR_SERVICE_OPPORTUNITIES,
-      membershipLevels: membershipLevels()
+      membershipLevels: membershipLevels(),
+      appConfig: {
+        seedMode: resolveSeedMode(),
+        demoLoginEnabled: demoLoginEnabled()
+      }
     });
     return;
   }
