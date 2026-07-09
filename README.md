@@ -114,3 +114,9 @@ For Hostinger VPS Docker Manager, this repo now includes [docker-compose.yml](/U
 6. Keep `/app/data` on a persistent Docker volume so `data/db.json` survives restarts.
 
 If you want a custom domain on Hostinger VPS, route the app through Traefik or another reverse proxy rather than exposing raw port `3000` directly.
+
+To push the current `main` branch to GitHub from this repo, run:
+
+```bash
+npm run push:main
+```
