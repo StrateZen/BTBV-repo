@@ -13,7 +13,7 @@ const state = {
   warrantySearch: "",
   adminClientSearch: "",
   selectedAdminClientId: null,
-  selectedClientTool: "intake",
+  selectedClientTool: "dashboard",
   assistantCalendarView: "month",
   assistantCalendarDate: new Date().toISOString().slice(0, 10),
   editingAssistantItemId: null,
@@ -58,8 +58,16 @@ document.addEventListener("click", async (event) => {
       state.warranties = [];
       state.freedomEntries = [];
       state.communityPosts = [];
+      state.selectedClientTool = "dashboard";
       state.activeModal = null;
       render();
+    }
+
+    if (action === "workspace-nav") {
+      state.selectedClientTool = actionEl.dataset.tool || "dashboard";
+      render();
+      const targetId = state.selectedClientTool === "dashboard" ? "dashboard-view" : "workspace-panel";
+      document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
     if (action === "select-room") {
@@ -127,6 +135,7 @@ document.addEventListener("click", async (event) => {
       state.editingWarrantyId = null;
       state.activeModal = null;
       render();
+      document.getElementById("workspace-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
     if (action === "open-modal") {
@@ -135,6 +144,11 @@ document.addEventListener("click", async (event) => {
         id: actionEl.dataset.id || null
       };
       render();
+    }
+
+    if (action === "admin-topbar-nav") {
+      const targetId = actionEl.dataset.target;
+      document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
     if (action === "close-modal") {
@@ -423,6 +437,10 @@ document.addEventListener("input", (event) => {
     state.adminClientSearch = event.target.value;
     render();
   }
+
+  if (event.target.matches('[name="stress_score"], [name="clutter_score"], [name="energy_alignment_score"]')) {
+    updateOverallScorePreview(event.target.form);
+  }
 });
 
 document.addEventListener("change", async (event) => {
@@ -593,7 +611,7 @@ async function submitAfterUpdate(form) {
         client_comments: data.client_comments,
         stress_score: Number(data.stress_score),
         clutter_score: Number(data.clutter_score),
-        energy_alignment_score: Number(data.energy_alignment_score)
+        energy_alignment_score: energyAlignmentStoredValue(data.energy_alignment_score, 8)
       }
     }
   });
@@ -868,7 +886,7 @@ function emotionPayloadFromForm(form, { entryType = "before" } = {}) {
   const data = formToObject(form);
   const stress = Number(data.stress_score || 5);
   const clutter = Number(data.clutter_score || 5);
-  const energy = Number(data.energy_alignment_score || 5);
+  const energy = energyAlignmentStoredValue(data.energy_alignment_score, 5);
   const secondCircle = Number(data.second_circle_intensity_score || data.sentimental_load_score || 5);
   const releaseReadiness = Number(data.release_readiness_score || data.readiness_score || 5);
   return {
@@ -959,121 +977,425 @@ function renderAuth() {
 
 function renderClientApp() {
   const dashboard = state.dashboard;
-  if (!dashboard) return renderShell("Loading", "<div class='page'><div class='empty-state'>Loading dashboard</div></div>");
+  if (!dashboard) {
+    return renderShell({
+      mode: "client",
+      subtitle: "Loading",
+      content: "<div class='page'><div class='empty-state'>Loading dashboard</div></div>"
+    });
+  }
 
   const selectedCard = dashboard.roomCards.find((room) => room.id === state.selectedRoomId) || dashboard.roomCards[0];
   const selectedDetails = selectedCard ? state.roomDetails[selectedCard.id] : null;
+  const selectedRoom = selectedDetails || selectedCard;
 
-  return renderShell(
-    `${escapeHtml(dashboard.user.name)} - ${escapeHtml(dashboard.clientProfile.membership_level)}`,
-    `
-      <main class="page">
-        <section class="dashboard-hero">
-          <div class="score-panel">
-            <div class="score-ring" style="--score:${dashboard.summary.home_transformation_score}">
-              <strong>${dashboard.summary.home_transformation_score}%</strong>
-            </div>
-            <div>
-              <span class="pill sage">${escapeHtml(dashboard.clientProfile.membership_level)}</span>
-              <h2>Home Transformation Score</h2>
-              <p>${escapeHtml(dashboard.valueSummary)}</p>
-            </div>
-          </div>
-          <div class="summary-panel">
-            <div class="section-title">
-              <div>
-                <h2>Whole-home progress</h2>
-                <p>${dashboard.summary.rooms_completed} complete, ${dashboard.summary.rooms_in_progress} in progress, ${dashboard.summary.rooms_open} open</p>
-              </div>
-            </div>
-            <div class="next-action">
-              <div>
-                <span class="muted">Next best action</span>
-                <strong>${escapeHtml(dashboard.summary.next_best_action)}</strong>
-              </div>
-              <span class="pill gold">${escapeHtml(dashboard.permissions.followUpCadence)}</span>
-            </div>
-          </div>
-        </section>
-
-        ${renderDifferentiationPanel(dashboard, selectedDetails || selectedCard)}
+  return renderShell({
+    mode: "client",
+    subtitle: `${dashboard.user.name} - ${dashboard.clientProfile.membership_level}`,
+    context: dashboard,
+    content: `
+      <main class="page client-page" id="dashboard-view">
+        ${renderClientGreeting(dashboard)}
+        ${renderClientHero(dashboard)}
         ${renderKpis(dashboard.summary)}
+        ${renderNextActionPanel(dashboard.summary.next_best_action, selectedRoom)}
 
-        <section class="content-grid">
-          <div class="work-panel">
-            <div class="section-title">
+        <section class="room-browser-layout">
+          <section class="work-panel room-browser-panel">
+            <div class="section-title room-browser-head">
               <div>
-                <h2>Rooms</h2>
-                <p>Progress, emotional shift, energy shift, and after-photo readiness.</p>
+                <span class="section-kicker">Your rooms</span>
+                <h2>Transformation spaces</h2>
+                <p>Progress, recommendation readiness, and visible movement across your home.</p>
+              </div>
+              <div class="button-row room-browser-actions">
+                <span class="muted">${dashboard.summary.rooms_completed} of ${dashboard.roomCards.length || 0} complete</span>
+                <button class="btn small ghost" data-action="open-modal" data-modal="intake" type="button">+ Add Room</button>
               </div>
             </div>
-            <div class="room-grid">
+            <div class="room-card-grid">
               ${dashboard.roomCards.map((room) => renderRoomCard(room, room.id === selectedCard?.id)).join("")}
             </div>
-          </div>
+          </section>
 
-          <aside class="stack">
-            ${renderRoomDetail(selectedDetails || selectedCard)}
+          <aside class="room-detail-rail">
+            ${renderRoomDetail(selectedRoom)}
           </aside>
         </section>
+
         ${renderClientToolSection(dashboard)}
+
         <section class="client-bottom stack">
-          ${renderMembershipAccess(dashboard.permissions)}
+          ${renderMembershipAccess(dashboard)}
           ${renderFaqs()}
         </section>
         ${renderActiveModal(dashboard)}
       </main>
     `
-  );
+  });
 }
 
-function renderShell(subtitle, content) {
+function renderShell({ mode = "client", subtitle = "", content = "", context = null } = {}) {
+  const isAdmin = mode === "admin";
+
   return `
-    <div class="app-shell">
-      <header class="topbar">
-        <div class="brand">
-          <div class="brand-mark">BV</div>
-          <div>
-            <h1>Built to Be Visible</h1>
-            <p>${escapeHtml(subtitle)}</p>
-          </div>
-        </div>
-        <div class="top-actions">
-          <span class="pill">${escapeHtml(state.session.user.role)}</span>
-          <button class="btn small ghost" data-action="logout" type="button">Sign out</button>
-        </div>
-      </header>
-      ${content}
+    <div class="app-shell ${isAdmin ? "admin-shell" : "client-shell"}">
+      ${isAdmin ? "" : renderClientSidebar(context)}
+      <div class="shell-main">
+        <header class="topbar ${isAdmin ? "admin-topbar" : "client-topbar"}">
+          ${isAdmin ? renderAdminTopbar() : renderClientTopbar(context, subtitle)}
+        </header>
+        ${content}
+      </div>
+      ${isAdmin ? "" : renderClientBottomNav()}
     </div>
   `;
 }
 
-function renderKpis(summary) {
-  const overall = ["Overall score", `${summary.average_overall_score}%`, summary.average_overall_score];
-  const percentKpis = [
-    ["Energy improvement", `${summary.average_energy_alignment_improvement}%`, summary.average_energy_alignment_improvement],
-    ["Stress reduction", `${summary.average_stress_reduction}%`, summary.average_stress_reduction],
-    ["Clutter reduction", `${summary.average_clutter_reduction}%`, summary.average_clutter_reduction]
-  ];
-  const roomKpis = [
-    ["Rooms completed", summary.rooms_completed],
-    ["Rooms in progress", summary.rooms_in_progress],
-    ["Rooms needing attention", summary.rooms_needing_attention],
-    ["Rooms open", summary.rooms_open]
-  ];
-  const workbook = [
-    "Workbook priority",
-    `${summary.average_workbook_priority_score || 0}%`,
-    summary.average_workbook_priority_score || 0
+function renderClientTopbar(dashboard, subtitle) {
+  const nextCheckIn = nextClientCheckInLabel();
+  const initials = initialsForName(dashboard?.user?.name || state.session?.user?.name || "BV");
+  return `
+    <div class="brand topbar-brand">
+      <div class="brand-mark">BV</div>
+      <div>
+        <h1>Built to Be Visible</h1>
+        <p>${escapeHtml(subtitle)}</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <span class="pill">${escapeHtml(capitalize(state.session?.user?.role || "client"))} view</span>
+      <span class="pill sage">${escapeHtml(nextCheckIn)}</span>
+      <div class="avatar-badge">${escapeHtml(initials)}</div>
+      <button class="btn small ghost" data-action="logout" type="button">Sign out</button>
+    </div>
+  `;
+}
+
+function renderAdminTopbar() {
+  return `
+    <div class="brand topbar-brand">
+      <div class="brand-mark">BV</div>
+      <div>
+        <h1>Built to Be Visible</h1>
+        <p>Staff workspace</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="pill blue interactive-pill" data-action="admin-topbar-nav" data-target="admin-review-queue" type="button">
+        Review queue ${state.admin?.reviewQueue?.length || 0}
+      </button>
+      <button class="pill interactive-pill" data-action="admin-topbar-nav" data-target="admin-client-explorer" type="button">
+        All clients
+      </button>
+      <div class="admin-login-meta">
+        <span>Logged in as</span>
+        <strong>${escapeHtml(state.session?.user?.name || "Emily")}</strong>
+      </div>
+      <div class="avatar-badge">${escapeHtml(initialsForName(state.session?.user?.name || "E"))}</div>
+      <button class="btn small ghost" data-action="logout" type="button">Exit admin</button>
+    </div>
+  `;
+}
+
+function renderClientSidebar(dashboard) {
+  const selected = state.selectedClientTool || "dashboard";
+  const membershipLevel = dashboard?.clientProfile?.membership_level || "Membership";
+  const cadence = dashboard?.permissions?.followUpCadence || "Guided";
+  const navItems = [
+    ["dashboard", "Dashboard"],
+    ["intake", "Intake"],
+    ["freedom", "Freedom Tool"],
+    ["assistant", "Assistant"],
+    ["warranty", "Warranty"],
+    ["community", "Community"]
   ];
 
   return `
-    <section class="kpi-stack">
-      <div class="overall-kpi">${renderKpiTile(overall, true)}</div>
-      <div class="kpi-grid percent-kpi-row">${renderKpiTiles(percentKpis, true)}</div>
-      <div class="kpi-grid workbook-kpi-row">${renderKpiTile(workbook, false, true)}</div>
-      <div class="kpi-grid room-kpi-row">${renderKpiTiles(roomKpis)}</div>
+    <aside class="workspace-sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-mark">BV</div>
+        <div>
+          <strong>Built to Be Visible</strong>
+          <span>${escapeHtml(membershipLevel)}</span>
+        </div>
+      </div>
+
+      <div class="sidebar-section-label">Workspace</div>
+      <nav class="workspace-nav" aria-label="Client workspace">
+        ${navItems
+          .map(
+            ([tool, label]) => `
+              <button class="workspace-link ${selected === tool ? "active" : ""}" data-action="workspace-nav" data-tool="${tool}" type="button">
+                <span class="workspace-icon"></span>
+                <span>${escapeHtml(label)}</span>
+              </button>
+            `
+          )
+          .join("")}
+      </nav>
+
+      <div class="sidebar-membership-card">
+        <span class="section-kicker">Premium</span>
+        <strong>${escapeHtml(membershipLevel)}</strong>
+        <p>${escapeHtml(cadence)} support cadence</p>
+      </div>
+    </aside>
+  `;
+}
+
+function renderClientBottomNav() {
+  const selected = state.selectedClientTool || "dashboard";
+  const navItems = [
+    ["dashboard", "Home"],
+    ["intake", "Intake"],
+    ["assistant", "Assistant"],
+    ["warranty", "Warranty"],
+    ["community", "Community"]
+  ];
+
+  return `
+    <nav class="bottom-workspace-nav" aria-label="Client workspace">
+      ${navItems
+        .map(
+          ([tool, label]) => `
+            <button class="bottom-workspace-link ${selected === tool ? "active" : ""}" data-action="workspace-nav" data-tool="${tool}" type="button">
+              <span class="workspace-icon"></span>
+              <span>${escapeHtml(label)}</span>
+            </button>
+          `
+        )
+        .join("")}
+    </nav>
+  `;
+}
+
+function renderClientGreeting(dashboard) {
+  return `
+    <section class="client-greeting">
+      <span class="section-kicker">${escapeHtml(dayGreeting())}</span>
+      <div class="client-greeting-row">
+        <h1>${escapeHtml(dashboard.user.name)}</h1>
+        <p>${escapeHtml(transformationDayLabel(dashboard.clientProfile?.created_at))}</p>
+      </div>
     </section>
+  `;
+}
+
+function renderClientHero(dashboard) {
+  const homeScore = Number(dashboard.summary.home_transformation_score || 0);
+  const roomProgress = dashboard.roomCards.slice(0, 5);
+  const reviewCount = dashboard.roomCards.filter((room) => room.emily_review_available).length;
+
+  return `
+    <section class="client-panel transformation-hero">
+      <div class="hero-score-panel">
+        <div class="score-ring large-ring" style="--score:${homeScore}">
+          <strong>${homeScore}</strong>
+          <span>/ 100</span>
+        </div>
+        <div class="hero-copy">
+          <span class="section-kicker">Transformation score</span>
+          <h2>${escapeHtml(scoreHeadline(homeScore))}</h2>
+          <p>${escapeHtml(dashboard.valueSummary)}</p>
+        </div>
+      </div>
+      <div class="hero-progress-panel">
+        <div class="hero-progress-head">
+          <span>Whole-home progress</span>
+          <strong>${homeScore}%</strong>
+        </div>
+        <div class="hero-progress-track">
+          <div class="hero-progress-fill" style="--progress:${homeScore}%"></div>
+        </div>
+        <div class="hero-room-tracks">
+          ${roomProgress
+            .map(
+              (room) => `
+                <div class="hero-room-track">
+                  <div class="hero-room-track-bar"><div class="hero-room-track-fill" style="--progress:${room.progress}%"></div></div>
+                  <span>${escapeHtml(shortRoomLabel(room.room_name))}</span>
+                </div>
+              `
+            )
+            .join("")}
+        </div>
+        <div class="hero-stat-row">
+          <div class="hero-stat">
+            <strong>${dashboard.summary.rooms_completed}/${dashboard.roomCards.length || 0}</strong>
+            <span>Rooms Complete</span>
+          </div>
+          <div class="hero-stat">
+            <strong>${daysSinceIso(dashboard.clientProfile?.created_at)}</strong>
+            <span>Days Active</span>
+          </div>
+          <div class="hero-stat">
+            <strong>${reviewCount}</strong>
+            <span>Emily Reviews</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderNextActionPanel(nextAction, room) {
+  return `
+    <section class="client-panel next-best-panel">
+      <div>
+        <span class="section-kicker">Next best action</span>
+        <h3>${escapeHtml(nextAction || "Start with your next room intake")}</h3>
+        <p>${escapeHtml(room?.room_name || "Focus room")} · ${escapeHtml(nextActionImpactLabel(room))}</p>
+      </div>
+      ${
+        room
+          ? `<button class="btn sage" data-action="select-room" data-room-id="${room.id}" type="button">Open Room</button>`
+          : ""
+      }
+    </section>
+  `;
+}
+
+function renderKpis(summary) {
+  return `
+    <section class="kpi-showcase">
+      ${[
+        ["Energy improvement", `${summary.average_energy_alignment_improvement}%`, summary.average_energy_alignment_improvement, "vs. intake baseline"],
+        ["Stress reduction", `${summary.average_stress_reduction}%`, summary.average_stress_reduction, "photo analysis markers"],
+        ["Clutter reduction", `${summary.average_clutter_reduction}%`, summary.average_clutter_reduction, "across active rooms"],
+        ["Overall score", `${summary.average_overall_score}%`, summary.average_overall_score, "current average"]
+      ]
+        .map((item) => renderShowcaseKpi(item))
+        .join("")}
+    </section>
+  `;
+}
+
+function renderShowcaseKpi([label, value, chartValue, note]) {
+  return `
+    <article class="showcase-kpi">
+      <div>
+        <strong>${escapeHtml(value)}</strong>
+        <span>${escapeHtml(label)}</span>
+        <p>${escapeHtml(note)}</p>
+      </div>
+      ${renderMiniChart(chartValue, label)}
+    </article>
+  `;
+}
+
+function scoreHeadline(score) {
+  if (score >= 80) return "Living in Alignment";
+  if (score >= 60) return "Building Momentum";
+  if (score >= 40) return "Visible Progress";
+  return "Starting the Reset";
+}
+
+function dayGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+function transformationDayLabel(iso) {
+  const dayCount = Math.max(1, daysSinceIso(iso));
+  return `Day ${dayCount} of your transformation`;
+}
+
+function daysSinceIso(iso) {
+  if (!iso) return 1;
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return 1;
+  return Math.max(1, Math.floor((Date.now() - then.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+}
+
+function shortRoomLabel(name = "") {
+  return String(name)
+    .split(/\s+/)
+    .slice(0, 1)
+    .join(" ");
+}
+
+function initialsForName(name = "") {
+  return String(name)
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("") || "BV";
+}
+
+function assistantDisplayDate(item) {
+  if (!item) return "";
+  const isAppointment = item.kind === "appointment";
+  return isAppointment ? item.due_date || item.appointment_at || "" : item.due_date || "";
+}
+
+function nextClientCheckInLabel() {
+  const upcoming = [...(state.assistantItems || [])]
+    .filter((item) => assistantDisplayDate(item))
+    .sort((a, b) => new Date(assistantDisplayDate(a)) - new Date(assistantDisplayDate(b)))[0];
+  if (!upcoming) return "Set your next check-in";
+  return `Check-in · ${formatDate(assistantDisplayDate(upcoming))}`;
+}
+
+function nextActionImpactLabel(room) {
+  if (!room) return "high impact on your transformation score";
+  if (room.status === "Waiting for After Photos") return "complete the visual review";
+  if (room.status === "Recommendation Sent") return "follow the current plan";
+  if (room.status === "In Progress") return "high impact on your transformation score";
+  return "next visible move";
+}
+
+function energyMoodLabel(shift = 0) {
+  const numeric = Number(shift || 0);
+  if (numeric >= 5) return "Expansive";
+  if (numeric >= 2) return "Opening";
+  if (numeric > 0) return "Steady";
+  return "Not captured";
+}
+
+function buildRoomActionChecklist(room, ai) {
+  const items = [
+    room?.next_best_action,
+    ...(ai?.recommended_layout_changes || []).slice(0, 1),
+    ...(ai?.organizing_recommendations || []).slice(0, 2)
+  ]
+    .filter(Boolean)
+    .filter((item, index, list) => list.indexOf(item) === index)
+    .slice(0, 4);
+
+  if (!items.length) {
+    items.push("Upload before photos and complete the first recommendation.");
+  }
+
+  return items.map((label, index) => ({
+    label,
+    complete: Number(room?.progress || 0) >= (index + 1) * 25
+  }));
+}
+
+function roomInsightMetrics(room) {
+  const progress = Number(room?.progress || 0);
+  return [
+    ["Clutter reduction", Number(room?.clutter_reduction || 0)],
+    ["Stress reduction", Number(room?.stress_reduction || 0)],
+    ["Energy improvement", Number(room?.energy_alignment_improvement || 0)],
+    ["Completion", progress]
+  ];
+}
+
+function renderInsightMetric([label, value]) {
+  const safeValue = Math.max(0, Math.min(100, Number(value || 0)));
+  return `
+    <div class="insight-metric">
+      <div class="insight-metric-head">
+        <span>${escapeHtml(label)}</span>
+        <strong>${safeValue}</strong>
+      </div>
+      <div class="insight-bar"><div class="insight-bar-fill" style="--progress:${safeValue}%"></div></div>
+    </div>
   `;
 }
 
@@ -1154,7 +1476,8 @@ function renderKpiTile([label, value, chartValue], featured = false, withChart =
 }
 
 function renderMiniChart(value, label) {
-  const safeValue = Math.max(0, Math.min(100, Math.round(value)));
+  const numericValue = Number.parseFloat(String(value ?? 0).replace("%", ""));
+  const safeValue = Number.isFinite(numericValue) ? Math.max(0, Math.min(100, Math.round(numericValue))) : 0;
   const dash = `${safeValue} ${100 - safeValue}`;
   return `
     <svg class="mini-chart" viewBox="0 0 42 42" role="img" aria-label="${escapeHtml(label)} ${safeValue}%">
@@ -1165,41 +1488,55 @@ function renderMiniChart(value, label) {
   `;
 }
 
+function roomScoreValue(room) {
+  const scoreCandidates = [room?.overall_score, room?.transformation_score, room?.current_progress, room?.progress];
+  const numericScore = scoreCandidates
+    .map((value) => Number.parseFloat(String(value ?? "")))
+    .find((value) => Number.isFinite(value));
+  return Number.isFinite(numericScore) ? Math.max(0, Math.min(100, Math.round(numericScore))) : 0;
+}
+
 function renderRoomCard(room, selected) {
+  const displayPhoto = room.after_photo || room.before_photo;
+  const showingAfter = Boolean(room.after_photo);
+  const roomScore = roomScoreValue(room);
   return `
-    <article class="room-card ${selected ? "selected" : ""}">
-      <div class="room-card-head">
-        <div>
-          <h3>${escapeHtml(room.room_name)}</h3>
-          <p class="muted">${escapeHtml(room.status)}</p>
-          ${room.support_track ? `<p class="muted room-track-line">${escapeHtml(room.support_track)}</p>` : ""}
+    <article class="room-card visual-room-card ${selected ? "selected" : ""}" data-action="select-room" data-room-id="${room.id}">
+      <div class="room-card-media">
+        ${
+          displayPhoto
+            ? `<img src="${displayPhoto}" alt="${escapeHtml(room.room_name)} ${showingAfter ? "after" : "before"} photo" />`
+            : `<div class="room-media-empty">Not yet started</div>`
+        }
+        <span class="room-score-badge">${roomScore} / 100</span>
+        <div class="room-photo-toggle">
+          <span class="${!showingAfter ? "active" : ""}">Before</span>
+          <span class="${showingAfter ? "active" : ""}">After</span>
         </div>
-        <span class="pill ${room.upsell_flag ? "clay" : "sage"}">${room.transformation_score}%</span>
       </div>
-      <div class="photo-pair">
-        ${renderPhotoSlot(room.before_photo, "Before")}
-        ${renderPhotoSlot(room.after_photo, "After")}
-      </div>
-      <div class="progress-track"><div class="progress-fill" style="--progress:${room.progress}%"></div></div>
-      <div class="room-metrics">
-        <div class="mini-metric"><span>Progress</span><strong>${room.progress}%</strong></div>
-        <div class="mini-metric"><span>Overall</span><strong>${room.overall_score}%</strong></div>
-        <div class="mini-metric"><span>Workbook</span><strong>${room.workbook_priority_score || 0}%</strong></div>
-        <div class="mini-metric"><span>Energy</span><strong>${formatShift(room.energy_shift)}</strong></div>
-      </div>
-      <p><strong>Next:</strong> ${escapeHtml(room.next_best_action)}</p>
-      <div class="button-row">
-        <button class="btn small secondary" data-action="select-room" data-room-id="${room.id}" type="button">View</button>
-        ${
-          room.status === "Recommendation Sent"
-            ? `<button class="btn small sage" data-action="start-room" data-room-id="${room.id}" type="button">Start</button>`
-            : ""
-        }
-        ${
-          ["Intake Submitted", "AI Review Complete"].includes(room.status)
-            ? `<button class="btn small blue" data-action="generate-ai" data-room-id="${room.id}" type="button">Photo AI review</button>`
-            : ""
-        }
+      <div class="room-card-copy">
+        <div class="room-status-row">
+          <strong>${escapeHtml(room.room_name)}</strong>
+          <span>${escapeHtml(room.status)}</span>
+        </div>
+        <div class="room-progress-row">
+          <span>${room.progress}% complete</span>
+          <span>${formatShift(room.energy_shift)} energy</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" style="--progress:${room.progress}%"></div></div>
+        <p>${escapeHtml(room.next_best_action)}</p>
+        <div class="room-card-actions">
+          ${
+            room.status === "Recommendation Sent"
+              ? `<button class="btn small sage" data-action="start-room" data-room-id="${room.id}" type="button">Start</button>`
+              : ""
+          }
+          ${
+            ["Intake Submitted", "AI Review Complete"].includes(room.status)
+              ? `<button class="btn small blue" data-action="generate-ai" data-room-id="${room.id}" type="button">Photo AI review</button>`
+              : ""
+          }
+        </div>
       </div>
     </article>
   `;
@@ -1207,136 +1544,162 @@ function renderRoomCard(room, selected) {
 
 function renderRoomDetail(room) {
   if (!room) {
-    return `<section class="client-panel"><div class="empty-state">Add a room to begin</div></section>`;
+    return `<section class="client-panel room-detail-panel"><div class="empty-state">Add a room to begin</div></section>`;
   }
 
+  const roomScore = roomScoreValue(room);
   const beforePhoto = room.before_photo || room.photos?.find((photo) => photo.photo_type === "before")?.photo_url;
   const afterPhoto = room.after_photo || room.photos?.find((photo) => photo.photo_type === "after")?.photo_url;
+  const heroPhoto = afterPhoto || beforePhoto;
   const ai = room.aiRecommendations?.[room.aiRecommendations.length - 1];
   const review = room.emilyReviews?.find((item) => item.sent_to_client) || room.emilyReviews?.[room.emilyReviews.length - 1];
   const finalRecommendation = room.final_recommendation || review?.final_recommendation || ai?.client_message_draft;
-  const layoutChanges = ai?.recommended_layout_changes || [];
   const photoReviewReport = ai?.photo_review_report;
-  const consultationItems = [
-    ["Priority space", room.priority_spaces],
-    ["Client story", room.priority_space_story],
-    ["Constraints", room.constraints],
-    ["Connected rooms / overflow", room.room_dependencies],
-    ["Storage needs", room.storage_needs],
-    ["Keepsakes / emotional release", room.keepsake_notes],
-    ["Visibility goals", room.visibility_goals],
-    ["Target date", room.target_date ? formatDate(room.target_date) : ""],
-    ["Workbook priority", room.score?.workbook_priority_score != null ? `${room.score.workbook_priority_score}%` : ""],
-    ["Second Circle intensity", room.score?.second_circle_intensity_score != null ? `${room.score.second_circle_intensity_score}/10` : ""],
-    ["Release readiness", room.score?.release_readiness_score != null ? `${room.score.release_readiness_score}/10` : ""]
-  ].filter(([, value]) => value !== "" && value != null);
+  const recommendations = [
+    ...(ai?.recommended_layout_changes || []),
+    ...(ai?.organizing_recommendations || [])
+  ]
+    .filter(Boolean)
+    .slice(0, 4);
+  const checklist = buildRoomActionChecklist(room, ai);
+  const metrics = roomInsightMetrics(room);
+  const ctaLabel =
+    room.status === "Waiting for After Photos"
+      ? "Log After Update"
+      : room.status === "Recommendation Sent"
+      ? "Start Room Work"
+      : "Continue Room Work";
 
   return `
-    <section class="client-panel">
-      <div class="section-title">
+    <section class="client-panel room-detail-panel">
+      <div class="room-detail-hero">
+        ${
+          heroPhoto
+            ? `<img src="${heroPhoto}" alt="${escapeHtml(room.room_name)} featured room photo" />`
+            : `<div class="empty-large">Upload room photos to begin</div>`
+        }
+        <div class="room-photo-toggle room-detail-toggle">
+          <span class="${!afterPhoto ? "active" : ""}">Before</span>
+          <span class="${afterPhoto ? "active" : ""}">After</span>
+        </div>
+      </div>
+      <div class="room-detail-head">
         <div>
           <h3>${escapeHtml(room.room_name)}</h3>
-          <p>${escapeHtml(room.status || "")}</p>
+          <p>${escapeHtml(room.status || "")}${room.updated_at ? ` · Updated ${formatDate(room.updated_at)}` : ""}</p>
         </div>
-        <span class="pill blue">${escapeHtml(room.priority || "Priority")}</span>
-      </div>
-      <div class="detail-media">
-        ${beforePhoto ? `<img src="${beforePhoto}" alt="${escapeHtml(room.room_name)} before photo" />` : `<div class="empty-large">Before photo</div>`}
-        ${afterPhoto ? `<img src="${afterPhoto}" alt="${escapeHtml(room.room_name)} after photo" />` : `<div class="empty-large">After photo</div>`}
-      </div>
-      ${
-        consultationItems.length
-          ? `<div class="recommendation-box consultation-box">
-              <h4>BTBV workbook context</h4>
-              <div class="definition-grid">
-                ${consultationItems
-                  .map(
-                    ([label, value]) => `
-                      <div class="definition-item">
-                        <span>${escapeHtml(label)}</span>
-                        <strong>${escapeHtml(value)}</strong>
-                      </div>
-                    `
-                  )
-                  .join("")}
-              </div>
-            </div>`
-          : ""
-      }
-      ${
-        room.support_track || room.ai_review_method
-          ? `<div class="recommendation-box support-track-box">
-              <h4>BTBV support path</h4>
-              <div class="definition-grid">
-                ${
-                  room.support_track
-                    ? `<div class="definition-item">
-                        <span>Support track</span>
-                        <strong>${escapeHtml(room.support_track)}</strong>
-                      </div>`
-                    : ""
-                }
-                ${
-                  room.ai_review_method
-                    ? `<div class="definition-item">
-                        <span>AI review mode</span>
-                        <strong>${escapeHtml(room.ai_review_method)}</strong>
-                      </div>`
-                    : ""
-                }
-              </div>
-              ${room.support_track_reason ? `<p>${escapeHtml(room.support_track_reason)}</p>` : ""}
-              ${room.ai_review_summary ? `<p class="muted">${escapeHtml(room.ai_review_summary)}</p>` : ""}
-            </div>`
-          : ""
-      }
-      ${renderPhotoReviewReport(photoReviewReport)}
-      <div class="recommendation-box">
-        <h4>Recommendation</h4>
-        <p>${escapeHtml(finalRecommendation || "Emily review has not been sent yet.")}</p>
-        ${
-          ai?.before_photo_narrative
-            ? `<h4>Before photo narrative</h4><p>${escapeHtml(ai.before_photo_narrative)}</p>`
-            : ""
-        }
-        ${
-          layoutChanges.length
-            ? `<h4>Recommended layout changes</h4><ul>${layoutChanges.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
-            : ""
-        }
-        ${
-          ai?.organizing_recommendations
-            ? `<h4>Organizing actions</h4><ul>${ai.organizing_recommendations.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
-            : ""
-        }
-        <div class="button-row">
-          <button class="btn small ghost" data-action="move-nurture" data-room-id="${room.id}" type="button">Nurture</button>
-          ${
-            room.status !== "Complete"
-              ? `<button class="btn small sage" data-action="start-room" data-room-id="${room.id}" type="button">Progress</button>`
-              : ""
-          }
+        <div class="room-score-summary">
+          ${renderMiniChart(roomScore, `${room.room_name} score`)}
+          <span>Room Score</span>
         </div>
       </div>
-      ${room.status !== "Complete" ? renderAfterForm(room.id) : ""}
+      <div class="detail-pill-grid">
+        <div class="detail-pill-card">
+          <span>Emotional Shift</span>
+          <strong>${escapeHtml(room.emotional_shift || "Not captured yet")}</strong>
+        </div>
+        <div class="detail-pill-card">
+          <span>Energy</span>
+          <strong>${escapeHtml(energyMoodLabel(room.energy_shift))}</strong>
+        </div>
+      </div>
+
+      <div class="detail-section">
+        <span class="section-kicker">Recommendations</span>
+        ${
+          recommendations.length
+            ? `<ol class="detail-numbered-list">${recommendations.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol>`
+            : `<p>${escapeHtml(finalRecommendation || "Emily review has not been sent yet.")}</p>`
+        }
+      </div>
+
+      ${
+        photoReviewReport
+          ? `
+            <div class="detail-section ai-review-section">
+              <div class="detail-section-head">
+                <span class="section-kicker">AI Photo Review</span>
+                <span class="pill sage">${escapeHtml(photoReviewReport.badge_label || "AI")}</span>
+              </div>
+              <p>${escapeHtml(photoReviewReport.summary || photoReviewReport.room_summary || "Photo review will appear here after intake.")}</p>
+              <div class="insight-grid">
+                ${metrics.map(renderInsightMetric).join("")}
+              </div>
+              ${
+                photoReviewReport.photo_count && !afterPhoto
+                  ? `<button class="btn small ghost" data-action="open-modal" data-modal="intake" type="button">Upload more photos for fuller analysis</button>`
+                  : ""
+              }
+            </div>
+          `
+          : ""
+      }
+
+      ${
+        review?.emily_notes || finalRecommendation
+          ? `
+            <div class="detail-section review-note">
+              <span class="section-kicker">Emily's Review</span>
+              <div class="quote-card">
+                <div class="quote-avatar">${escapeHtml(initialsForName("Emily Ransom"))}</div>
+                <div>
+                  <strong>Emily Ransom</strong>
+                  <blockquote>${escapeHtml(review?.emily_notes || finalRecommendation || "")}</blockquote>
+                </div>
+              </div>
+            </div>
+          `
+          : ""
+      }
+
+      <div class="detail-section">
+        <span class="section-kicker">Progress Actions</span>
+        <div class="action-checklist">
+          ${checklist
+            .map(
+              (item) => `
+                <div class="action-check ${item.complete ? "complete" : ""}">
+                  <span class="action-check-box">${item.complete ? "✓" : ""}</span>
+                  <span>${escapeHtml(item.label)}</span>
+                </div>
+              `
+            )
+            .join("")}
+        </div>
+        ${
+          room.status !== "Complete"
+            ? `<button class="btn sage room-cta" data-action="start-room" data-room-id="${room.id}" type="button">${escapeHtml(ctaLabel)}</button>`
+            : ""
+        }
+      </div>
+
+      ${
+        room.status !== "Complete"
+          ? `<details class="support-details">
+              <summary>Log after photos and new scores</summary>
+              ${renderAfterForm(room.id)}
+            </details>`
+          : ""
+      }
     </section>
   `;
 }
 
 function renderAfterForm(roomId) {
+  const defaultEnergyMisalignment = energyMisalignmentDisplayValue(8);
   return `
-    <form class="stack" data-form="after-update">
+    <form class="stack after-update-form" data-form="after-update">
       <input type="hidden" name="room_id" value="${roomId}" />
-      <div class="divider"></div>
-      <div class="section-title">
-        <h3>After update</h3>
-      </div>
       <label>After photos <input name="after_photos" type="file" accept="image/*" multiple /></label>
       <label>After emotions <input name="emotions" placeholder="Calm, clear, peaceful" required /></label>
       <div class="form-grid">
         <label>Stress score <input name="stress_score" type="number" min="1" max="10" value="3" required /></label>
         <label>Clutter score <input name="clutter_score" type="number" min="1" max="10" value="3" required /></label>
-        <label class="full">Energy alignment score <input name="energy_alignment_score" type="number" min="1" max="10" value="8" required /></label>
+        <label class="full">
+          Energy misalignment score
+          <input name="energy_alignment_score" type="number" min="1" max="10" value="${defaultEnergyMisalignment}" required />
+          <span class="field-hint">1 = highly aligned and supportive. 10 = draining, disconnected, or off.</span>
+        </label>
       </div>
       <label>Notes <textarea name="client_comments"></textarea></label>
       <button class="btn sage" type="submit" ${state.busy ? "disabled" : ""}>Save after update</button>
@@ -1344,30 +1707,45 @@ function renderAfterForm(roomId) {
   `;
 }
 
-function renderMembershipAccess(permissions) {
-  const items = [
-    [`${permissions.activeRoomLimit >= 99 ? "Whole-home" : permissions.activeRoomLimit} active rooms`, true],
-    [`${permissions.aiReviewLimit >= 99 ? "Unlimited" : permissions.aiReviewLimit} AI reviews`, true],
-    [`${permissions.emilyReviewLimit >= 99 ? "Unlimited" : permissions.emilyReviewLimit} Emily reviews`, permissions.emilyReviewLimit > 0],
-    ["Direct Emily access", permissions.directEmilyAccess],
-    ["Booking access", permissions.bookingAccess],
-    ["Advanced KPIs", permissions.advancedDashboard]
-  ];
-
+function renderMembershipAccess(dashboard) {
+  const permissions = dashboard.permissions;
+  const planLimit = permissions.activeRoomLimit >= 99 ? 5 : permissions.activeRoomLimit;
+  const nextCheckIn = nextClientCheckInLabel().replace("Check-in · ", "");
   return `
-    <section class="client-panel">
-      <div class="section-title"><h3>Membership access</h3></div>
-      <div class="access-grid">
-        ${items
-          .map(
-            ([label, enabled]) => `
-              <div class="access-item ${enabled ? "" : "locked"}">
-                <strong>${enabled ? "Available" : "Locked"}</strong>
-                <p>${escapeHtml(label)}</p>
-              </div>
-            `
-          )
-          .join("")}
+    <section class="client-panel membership-panel">
+      <div class="membership-panel-head">
+        <div>
+          <span class="section-kicker">Your membership</span>
+          <h3>${escapeHtml(dashboard.clientProfile.membership_level)}</h3>
+        </div>
+        <div class="membership-status">
+          <span class="status-dot"></span>
+          <strong>${escapeHtml(capitalize(dashboard.clientProfile.membership_status || "active"))}</strong>
+          <span>· ${escapeHtml(permissions.followUpCadence)} support</span>
+        </div>
+      </div>
+      <div class="membership-panel-body">
+        <div class="membership-metric">
+          <span>Rooms Included</span>
+          <div class="slot-row">
+            ${Array.from({ length: 5 }, (_, index) => `<span class="slot-pill ${index < Math.min(5, planLimit) ? "filled" : ""}"></span>`).join("")}
+            <strong>${permissions.activeRoomLimit >= 99 ? "Whole-home" : escapeHtml(String(permissions.activeRoomLimit))}</strong>
+          </div>
+        </div>
+        <div class="membership-metric">
+          <span>Next check-in</span>
+          <strong>${escapeHtml(nextCheckIn)}</strong>
+          <p>${permissions.directEmilyAccess ? "with Emily support" : "guided by your current plan"}</p>
+        </div>
+        <div class="membership-metric">
+          <span>Days active</span>
+          <strong>${daysSinceIso(dashboard.clientProfile?.created_at)}</strong>
+          <p>${dashboard.summary.rooms_open} room${dashboard.summary.rooms_open === 1 ? "" : "s"} open right now</p>
+        </div>
+        <div class="membership-actions">
+          <button class="btn sage" data-action="open-modal" data-modal="intake" type="button">Add a Room</button>
+          <button class="btn ghost" data-action="workspace-nav" data-tool="dashboard" type="button">Membership details</button>
+        </div>
       </div>
     </section>
   `;
@@ -1413,115 +1791,184 @@ function renderRoomIntakeModalForm(dashboard, options = {}) {
     options.beforeEntry ||
     room.emotions?.find((entry) => entry.entry_type === "before") ||
     {};
+  const displayEnergyScore = energyMisalignmentDisplayValue(beforeEntry.energy_alignment_score ?? 4);
   const roomLimitReached = !adminMode && dashboard.summary.rooms_open >= dashboard.permissions.activeRoomLimit;
-  const roomOptions = (state.bootstrap.roomTypes || []).map((item) => `<option>${escapeHtml(item)}</option>`).join("");
   const formName = options.formName || (adminMode ? "admin-room-add" : "room-intake");
+  const previewScore = overallScorePreview(
+    beforeEntry.stress_score ?? 7,
+    beforeEntry.clutter_score ?? 7,
+    displayEnergyScore
+  );
   return `
-    <form class="stack" data-form="${escapeHtml(formName)}">
+    <form class="stack intake-wizard-form" data-form="${escapeHtml(formName)}">
       ${room.id ? `<input type="hidden" name="room_id" value="${escapeHtml(room.id)}" />` : ""}
       ${beforeEntry.id ? `<input type="hidden" name="before_entry_id" value="${escapeHtml(beforeEntry.id)}" />` : ""}
-      <div class="form-section-label">
-        <strong>${adminMode ? "Room planning" : "Room basics"}</strong>
-        <span>${adminMode ? "Staff can update both the client-facing intake and the internal planning fields." : "Keep this light. The app will reuse these answers in the Freedom Tool and AI review."}</span>
-      </div>
-      <div class="form-grid">
-        <label>Room name <input name="room_name" placeholder="Bedroom" value="${escapeHtml(room.room_name || "")}" required /></label>
-        <label>Room type
-          <select name="room_type" required>${(state.bootstrap.roomTypes || [])
-            .map((item) => `<option ${room.room_type === item ? "selected" : ""}>${escapeHtml(item)}</option>`)
-            .join("")}</select>
-        </label>
-        <label>Priority
-          <select name="priority">${state.bootstrap.roomPriorities
-            .map((item) => `<option ${String(room.priority || "Medium") === item ? "selected" : ""}>${escapeHtml(item)}</option>`)
-            .join("")}</select>
-        </label>
-        <label>Energy outcome
-          <select name="desired_energy_outcome">${state.bootstrap.desiredEnergyOutcomes
-            .map(
-              (item) => `<option ${String(room.desired_energy_outcome || "Calm") === item ? "selected" : ""}>${escapeHtml(item)}</option>`
-            )
-            .join("")}</select>
-        </label>
-      </div>
+      <div class="wizard-shell">
+        <div class="wizard-head">
+          <div class="wizard-head-top">
+            <span class="pill blue">Step 1 of 5</span>
+            <button class="modal-close-button" data-action="close-modal" type="button">×</button>
+          </div>
+          <h3>Room Basics</h3>
+          <p>${adminMode ? "Client-facing intake plus staff planning context." : "Name, type, intention, and what is happening in the room right now."}</p>
+          <div class="wizard-steps">
+            ${["Room Basics", "Before Photos", "Room Scoring", "Reflection", "Notes & Submit"]
+              .map(
+                (label, index) => `
+                  <div class="wizard-step ${index === 0 ? "active" : ""}">
+                    <span>${index + 1}</span>
+                    <strong>${escapeHtml(label)}</strong>
+                  </div>
+                `
+              )
+              .join("")}
+          </div>
+        </div>
+
+        <div class="wizard-body">
+          <section class="wizard-section">
+            <div class="form-grid">
+              <label>Room Name <input name="room_name" placeholder="e.g. Master Bedroom" value="${escapeHtml(room.room_name || "")}" required /></label>
+              <label>Room Type
+                <select name="room_type" required>
+                  <option value="">Select a type...</option>
+                  ${(state.bootstrap.roomTypes || [])
+                    .map((item) => `<option ${room.room_type === item ? "selected" : ""}>${escapeHtml(item)}</option>`)
+                    .join("")}
+                </select>
+              </label>
+            </div>
+
+            <div class="priority-choice-group">
+              <span class="priority-label">Priority</span>
+              <div class="priority-choice-grid">
+                ${state.bootstrap.roomPriorities
+                  .map(
+                    (item) => `
+                      <label class="priority-choice">
+                        <input name="priority" type="radio" value="${escapeHtml(item)}" ${String(room.priority || "Medium") === item ? "checked" : ""} />
+                        <span>${escapeHtml(item)}</span>
+                      </label>
+                    `
+                  )
+                  .join("")}
+              </div>
+            </div>
+
+            <label>Desired Outcome
+              <textarea name="desired_energy_outcome" placeholder="When this room is done, I want it to feel...">${escapeHtml(room.desired_energy_outcome || "")}</textarea>
+            </label>
+          </section>
+
+          <section class="wizard-section">
+            <div class="form-section-label">
+              <strong>Before photos and reflection</strong>
+              <span>${adminMode ? "Staff can review uploaded room photos here as they come in." : "The app will reuse these answers in AI review and the Freedom Tool."}</span>
+            </div>
+            ${adminMode ? renderRoomPhotoPanel("Uploaded photos", room.photos || [], { className: "modal-photo-grid", emptyMessage: "No room photos uploaded yet." }) : ""}
+            <label>Before photos <input name="before_photos" type="file" accept="image/*" multiple /></label>
+            <label>Current emotions <input name="emotions" placeholder="Overwhelmed, anxious, stuck" value="${escapeHtml((beforeEntry.emotions || []).join(", "))}" required /></label>
+            <label>What is happening in this room right now?
+              <textarea name="first_circle_event" placeholder="Describe the visible or practical issue in plain language.">${escapeHtml(room.priority_space_story || "")}</textarea>
+            </label>
+            <label>What story, emotional weight, or repeated thought comes with it?
+              <textarea name="second_circle_items" placeholder="This will be reused in the Freedom Tool so the client does not need to re-enter it.">${escapeHtml(room.keepsake_notes || "")}</textarea>
+            </label>
+          </section>
+
+          <section class="wizard-section">
+            <div class="section-title wizard-score-head">
+              <div>
+                <span class="section-kicker">Room scoring</span>
+                <h4>Current room condition</h4>
+              </div>
+              <div class="score-preview-card">
+                <span>Overall score</span>
+                <strong data-overall-score-display>${previewScore}%</strong>
+              </div>
+            </div>
+            <div class="form-grid">
+              ${renderScoreInput("Stress score", "stress_score", beforeEntry.stress_score ?? 7, "1 = calm and easy in the body. 10 = highly stressful or overwhelming.")}
+              ${renderScoreInput("Clutter score", "clutter_score", beforeEntry.clutter_score ?? 7, "1 = clear and contained. 10 = visually heavy or difficult to manage.")}
+              ${renderScoreInput("Energy misalignment score", "energy_alignment_score", displayEnergyScore, "1 = highly aligned and supportive. 10 = draining, disconnected, or off.", true)}
+            </div>
+          </section>
+
+          <section class="wizard-section">
+            <div class="form-section-label">
+              <strong>${adminMode ? "Workbook and release scoring" : "Freedom Tool alignment"}</strong>
+              <span>${adminMode ? "These fields drive the workbook priority score and internal staff review." : "These answers feed the workbook score and a draft Freedom Tool entry."}</span>
+            </div>
+            <div class="form-grid">
+              ${adminMode ? renderScoreInput("Functional friction", "functional_friction_score", beforeEntry.functional_friction_score ?? beforeEntry.stress_score ?? 7, "1 = the room works easily. 10 = it constantly interrupts daily life.") : ""}
+              ${adminMode ? renderScoreInput("Storage fit", "storage_fit_score", beforeEntry.storage_fit_score ?? Math.max(1, 10 - Number(beforeEntry.clutter_score ?? 7)), "1 = nothing has a real home. 10 = storage already supports the room.") : ""}
+              ${adminMode ? renderScoreInput("Sentimental load", "sentimental_load_score", beforeEntry.sentimental_load_score ?? beforeEntry.second_circle_intensity_score ?? 5, "1 = very little emotional weight. 10 = strong memory or identity load.") : ""}
+              ${adminMode ? renderScoreInput("Client readiness", "readiness_score", beforeEntry.readiness_score ?? beforeEntry.release_readiness_score ?? 6, "1 = not ready to decide. 10 = ready to act and follow through.") : ""}
+              ${renderScoreInput("Second Circle intensity", "second_circle_intensity_score", beforeEntry.second_circle_intensity_score ?? 6, "1 = low emotional charge. 10 = very charged or sticky in the mind.")}
+              ${renderScoreInput("Release readiness", "release_readiness_score", beforeEntry.release_readiness_score ?? 5, "1 = not ready to release yet. 10 = ready to voice, surrender, and move.")}
+              ${adminMode ? renderScoreInput("Decision urgency", "decision_urgency_score", beforeEntry.decision_urgency_score ?? priorityUrgencyValue(room.priority || "Medium"), "1 = can wait. 10 = deadlines, quotes, moves, or timing pressure are active.", true) : ""}
+            </div>
+          </section>
+
+          <section class="wizard-section">
+            <label>What still needs a permanent home?
+              <textarea name="storage_needs" placeholder="Optional: categories or surfaces that still do not have a clear place.">${escapeHtml(room.storage_needs || "")}</textarea>
+            </label>
+            <label>What is getting in the way?
+              <textarea name="constraints" placeholder="Optional: timing, budget, other rooms, repairs, household routines.">${escapeHtml(room.constraints || "")}</textarea>
+            </label>
+          </section>
+
       ${adminMode
         ? `
-          <div class="form-grid">
-            <label>Priority space
-              <select name="priority_spaces">${(state.bootstrap.roomTypes || [])
-                .map((item) => `<option ${String(room.priority_spaces || room.room_type || "") === item ? "selected" : ""}>${escapeHtml(item)}</option>`)
-                .join("")}</select>
-            </label>
-            <label>Lead source
-              <select name="lead_source">${(state.bootstrap.leadSources || [])
-                .map((item) => `<option ${String(room.lead_source || "") === item ? "selected" : ""}>${escapeHtml(item)}</option>`)
-                .join("")}</select>
-            </label>
-          </div>
+          <section class="wizard-section">
+            <div class="form-section-label">
+              <strong>Staff-only planning fields</strong>
+              <span>Keep these internal. They do not appear in the client dashboard.</span>
+            </div>
+            <div class="form-grid">
+              <label>Priority space
+                <select name="priority_spaces">${(state.bootstrap.roomTypes || [])
+                  .map((item) => `<option ${String(room.priority_spaces || room.room_type || "") === item ? "selected" : ""}>${escapeHtml(item)}</option>`)
+                  .join("")}</select>
+              </label>
+              <label>Lead source
+                <select name="lead_source">${(state.bootstrap.leadSources || [])
+                  .map((item) => `<option ${String(room.lead_source || "") === item ? "selected" : ""}>${escapeHtml(item)}</option>`)
+                  .join("")}</select>
+              </label>
+            </div>
+            <label>Consultation notes <textarea name="consultation_notes" placeholder="Handwritten workbook details, observations, planning context.">${escapeHtml(room.consultation_notes || beforeEntry.client_comments || "")}</textarea></label>
+            <label>Connected rooms / overflow <textarea name="room_dependencies" placeholder="Example: bedroom depends on office overflow.">${escapeHtml(room.room_dependencies || "")}</textarea></label>
+            <label>Visibility goals <textarea name="visibility_goals" placeholder="What should stay visible, highlighted, or displayed?">${escapeHtml(room.visibility_goals || "")}</textarea></label>
+            <div class="form-grid">
+              <label>Recommended service path
+                <select name="service_path">${(state.bootstrap.servicePaths || [])
+                  .map((item) => `<option ${String(room.service_path || "Undecided") === item ? "selected" : ""}>${escapeHtml(item)}</option>`)
+                  .join("")}</select>
+              </label>
+              <label>Quote amount <input name="quote_amount" type="number" min="0" step="0.01" placeholder="3400" value="${escapeHtml(room.quote_amount || "")}" /></label>
+              <label>Discount % <input name="discount_percent" type="number" min="0" max="100" step="0.1" placeholder="10" value="${escapeHtml(room.discount_percent || "")}" /></label>
+              <label>Target date <input name="target_date" type="date" value="${escapeHtml(inputDate(room.target_date))}" /></label>
+            </div>
+            <label class="checkbox-label"><input name="deposit_required" type="checkbox" ${room.deposit_required ? "checked" : ""} /> Deposit required</label>
+            <label>Decision notes <textarea name="decision_notes" placeholder="Internal quote options, next decision date, or follow-up context.">${escapeHtml(room.decision_notes || "")}</textarea></label>
+          </section>
         `
         : ""}
-      <label>What is happening in this room right now?
-        <textarea name="first_circle_event" placeholder="Describe the visible or practical issue in plain language.">${escapeHtml(room.priority_space_story || "")}</textarea>
-      </label>
-      ${adminMode ? renderRoomPhotoPanel("Uploaded photos", room.photos || [], { className: "modal-photo-grid", emptyMessage: "No room photos uploaded yet." }) : ""}
-      <label>Before photos <input name="before_photos" type="file" accept="image/*" multiple /></label>
-      <label>Current emotions <input name="emotions" placeholder="Overwhelmed, anxious, stuck" value="${escapeHtml((beforeEntry.emotions || []).join(", "))}" required /></label>
-      <label>What story, emotional weight, or repeated thought comes with it?
-        <textarea name="second_circle_items" placeholder="This will be reused in the Freedom Tool so the client does not need to re-enter it.">${escapeHtml(room.keepsake_notes || "")}</textarea>
-      </label>
-      <div class="form-section-label">
-        <strong>Core scores</strong>
-        <span>These produce the overall room condition score.</span>
-      </div>
-      <div class="form-grid">
-        ${renderScoreInput("Stress score", "stress_score", beforeEntry.stress_score ?? 7, "1 = calm and easy in the body. 10 = highly stressful or overwhelming.")}
-        ${renderScoreInput("Clutter score", "clutter_score", beforeEntry.clutter_score ?? 7, "1 = clear and contained. 10 = visually heavy or difficult to manage.")}
-        ${renderScoreInput("Energy alignment score", "energy_alignment_score", beforeEntry.energy_alignment_score ?? 4, "1 = draining or disconnected. 10 = aligned, supportive, and energizing.", true)}
-      </div>
-      <div class="form-section-label">
-        <strong>${adminMode ? "Workbook and release scoring" : "Freedom Tool alignment"}</strong>
-        <span>${adminMode ? "These fields drive the workbook priority score and internal staff review." : "These answers feed both the workbook score and a draft Freedom Tool entry."}</span>
-      </div>
-      <div class="form-grid">
-        ${adminMode ? renderScoreInput("Functional friction", "functional_friction_score", beforeEntry.functional_friction_score ?? beforeEntry.stress_score ?? 7, "1 = the room works easily. 10 = it constantly interrupts daily life.") : ""}
-        ${adminMode ? renderScoreInput("Storage fit", "storage_fit_score", beforeEntry.storage_fit_score ?? Math.max(1, 10 - Number(beforeEntry.clutter_score ?? 7)), "1 = nothing has a real home. 10 = storage already supports the room.") : ""}
-        ${adminMode ? renderScoreInput("Sentimental load", "sentimental_load_score", beforeEntry.sentimental_load_score ?? beforeEntry.second_circle_intensity_score ?? 5, "1 = very little emotional weight. 10 = strong memory or identity load.") : ""}
-        ${adminMode ? renderScoreInput("Client readiness", "readiness_score", beforeEntry.readiness_score ?? beforeEntry.release_readiness_score ?? 6, "1 = not ready to decide. 10 = ready to act and follow through.") : ""}
-        ${renderScoreInput("Second Circle intensity", "second_circle_intensity_score", beforeEntry.second_circle_intensity_score ?? 6, "1 = low emotional charge. 10 = very charged or sticky in the mind.")}
-        ${renderScoreInput("Release readiness", "release_readiness_score", beforeEntry.release_readiness_score ?? 5, "1 = not ready to release yet. 10 = ready to voice, surrender, and move.")}
-        ${adminMode ? renderScoreInput("Decision urgency", "decision_urgency_score", beforeEntry.decision_urgency_score ?? priorityUrgencyValue(room.priority || "Medium"), "1 = can wait. 10 = deadlines, quotes, moves, or timing pressure are active.", true) : ""}
-      </div>
-      <label>What still needs a permanent home?
-        <textarea name="storage_needs" placeholder="Optional: categories or surfaces that still do not have a clear place.">${escapeHtml(room.storage_needs || "")}</textarea>
-      </label>
-      <label>What is getting in the way?
-        <textarea name="constraints" placeholder="Optional: timing, budget, other rooms, repairs, household routines.">${escapeHtml(room.constraints || "")}</textarea>
-      </label>
-      ${adminMode
-        ? `
-          <div class="form-section-label">
-            <strong>Staff-only planning fields</strong>
-            <span>Keep these internal. They do not appear in the client dashboard.</span>
+          <section class="wizard-section">
+            <label>Comments <textarea name="client_comments" placeholder="How does this room feel right now?">${escapeHtml(beforeEntry.client_comments || "")}</textarea></label>
+          </section>
+        </div>
+
+        <div class="wizard-footer">
+          <button class="btn ghost" data-action="close-modal" type="button">Back</button>
+          <div class="wizard-dots">
+            <span class="active"></span><span></span><span></span><span></span><span></span>
           </div>
-          <label>Consultation notes <textarea name="consultation_notes" placeholder="Handwritten workbook details, observations, planning context.">${escapeHtml(room.consultation_notes || beforeEntry.client_comments || "")}</textarea></label>
-          <label>Connected rooms / overflow <textarea name="room_dependencies" placeholder="Example: bedroom depends on office overflow.">${escapeHtml(room.room_dependencies || "")}</textarea></label>
-          <label>Visibility goals <textarea name="visibility_goals" placeholder="What should stay visible, highlighted, or displayed?">${escapeHtml(room.visibility_goals || "")}</textarea></label>
-          <div class="form-grid">
-            <label>Recommended service path
-              <select name="service_path">${(state.bootstrap.servicePaths || [])
-                .map((item) => `<option ${String(room.service_path || "Undecided") === item ? "selected" : ""}>${escapeHtml(item)}</option>`)
-                .join("")}</select>
-            </label>
-            <label>Quote amount <input name="quote_amount" type="number" min="0" step="0.01" placeholder="3400" value="${escapeHtml(room.quote_amount || "")}" /></label>
-            <label>Discount % <input name="discount_percent" type="number" min="0" max="100" step="0.1" placeholder="10" value="${escapeHtml(room.discount_percent || "")}" /></label>
-            <label>Target date <input name="target_date" type="date" value="${escapeHtml(inputDate(room.target_date))}" /></label>
-          </div>
-          <label class="checkbox-label"><input name="deposit_required" type="checkbox" ${room.deposit_required ? "checked" : ""} /> Deposit required</label>
-          <label>Decision notes <textarea name="decision_notes" placeholder="Internal quote options, next decision date, or follow-up context.">${escapeHtml(room.decision_notes || "")}</textarea></label>
-        `
-        : ""}
-      <label>Comments <textarea name="client_comments" placeholder="How does this room feel right now?">${escapeHtml(beforeEntry.client_comments || "")}</textarea></label>
-      <button class="btn clay" type="submit" ${state.busy || roomLimitReached ? "disabled" : ""}>${adminMode ? (room.id ? "Update room" : "Add room") : "Submit intake"}</button>
+          <button class="btn clay" type="submit" ${state.busy || roomLimitReached ? "disabled" : ""}>${adminMode ? (room.id ? "Update room" : "Add room") : "Submit intake"}</button>
+        </div>
+      </div>
     </form>
   `;
 }
@@ -1534,6 +1981,37 @@ function renderScoreInput(label, name, value, hint, full = false) {
       <span class="field-hint">${escapeHtml(hint)}</span>
     </label>
   `;
+}
+
+function normalizeTenPointFieldValue(value, fallback = 5) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(1, Math.min(10, Math.round(numeric))) : fallback;
+}
+
+function energyMisalignmentDisplayValue(alignmentScore, fallback = 5) {
+  return 11 - normalizeTenPointFieldValue(alignmentScore, fallback);
+}
+
+function energyAlignmentStoredValue(displayScore, fallback = 5) {
+  const displayFallback = energyMisalignmentDisplayValue(fallback, fallback);
+  return 11 - normalizeTenPointFieldValue(displayScore, displayFallback);
+}
+
+function overallScorePreview(stress, clutter, energy) {
+  const stressHealth = 10 - normalizeTenPointFieldValue(stress, 5);
+  const clutterHealth = 10 - normalizeTenPointFieldValue(clutter, 5);
+  const energyHealth = energyAlignmentStoredValue(energy, 5);
+  return Math.max(0, Math.min(100, Math.round(((stressHealth + clutterHealth + energyHealth) / 30) * 100)));
+}
+
+function updateOverallScorePreview(form) {
+  if (!form) return;
+  const display = form.querySelector("[data-overall-score-display]");
+  if (!display) return;
+  const stress = form.querySelector('[name="stress_score"]')?.value || 0;
+  const clutter = form.querySelector('[name="clutter_score"]')?.value || 0;
+  const energy = form.querySelector('[name="energy_alignment_score"]')?.value || 0;
+  display.textContent = `${overallScorePreview(stress, clutter, energy)}%`;
 }
 
 function buildCardPhotoList(room) {
@@ -1597,6 +2075,7 @@ function renderPhotoReviewReport(report, options = {}) {
   const title = options.title || "Photo AI review";
   const badgeClass = report.status === "vision-reviewed" ? "sage" : "gold";
   const details = [
+    ["Direct photo analysis", report.status === "vision-reviewed" ? "Yes" : "No"],
     ["Status", report.badge_label || report.review_mode_label || "Draft"],
     ["Mode", report.review_mode_label || "Local draft"],
     ["Photos", String(report.photo_count || 0)],
@@ -1716,7 +2195,9 @@ function renderFaqs() {
 }
 
 function renderClientToolSection(dashboard) {
-  const selected = state.selectedClientTool || "intake";
+  const selected = state.selectedClientTool || "dashboard";
+  if (selected === "dashboard") return "";
+
   const tools = [
     ["intake", "Intake"],
     ["freedom", "Freedom Tool"],
@@ -1736,15 +2217,12 @@ function renderClientToolSection(dashboard) {
           : renderRoomIntakeForm(dashboard);
 
   return `
-    <section class="client-tool-section">
-      <div class="client-tool-tabs" role="tablist" aria-label="Client tools">
-        ${tools
-          .map(
-            ([id, label]) => `
-              <button class="tab ${selected === id ? "active" : ""}" data-action="client-tool" data-tool="${id}" type="button">${label}</button>
-            `
-          )
-          .join("")}
+    <section class="client-tool-section" id="workspace-panel">
+      <div class="workspace-section-head">
+        <div>
+          <span class="section-kicker">Workspace</span>
+          <h2>${escapeHtml((tools.find(([id]) => id === selected) || ["", "Dashboard"])[1])}</h2>
+        </div>
       </div>
       ${content}
     </section>
@@ -2414,9 +2892,12 @@ function renderActiveModal(dashboard) {
   const modal = state.activeModal;
   let title = "";
   let content = "";
+  let showHeader = true;
+  let modalClass = "";
 
   if (modal.type === "intake") {
-    title = "Add room intake";
+    showHeader = false;
+    modalClass = "modal-panel-wide";
     content = renderRoomIntakeModalForm(dashboard);
   }
 
@@ -2460,13 +2941,15 @@ function renderActiveModal(dashboard) {
   }
 
   if (modal.type === "admin-room-add") {
-    title = "Add room for client";
+    showHeader = false;
+    modalClass = "modal-panel-wide";
     content = renderRoomIntakeModalForm(dashboard, { adminMode: true, formName: "admin-room-add" });
   }
 
   if (modal.type === "admin-room-edit") {
     const room = state.roomDetails[modal.id];
-    title = "Edit room intake";
+    showHeader = false;
+    modalClass = "modal-panel-wide";
     content = room
       ? renderRoomIntakeModalForm(dashboard, {
           adminMode: true,
@@ -2484,11 +2967,15 @@ function renderActiveModal(dashboard) {
 
   return `
     <div class="modal-backdrop" role="dialog" aria-modal="true">
-      <div class="modal-panel">
-        <div class="section-title">
-          <h3>${escapeHtml(title)}</h3>
-          <button class="btn small ghost" data-action="close-modal" type="button">Close</button>
-        </div>
+      <div class="modal-panel ${modalClass}">
+        ${
+          showHeader
+            ? `<div class="section-title">
+                <h3>${escapeHtml(title)}</h3>
+                <button class="btn small ghost" data-action="close-modal" type="button">Close</button>
+              </div>`
+            : ""
+        }
         ${content}
       </div>
     </div>
@@ -2497,90 +2984,84 @@ function renderActiveModal(dashboard) {
 
 function renderAdminApp() {
   const admin = state.admin;
-  if (!admin) return renderShell("Emily dashboard", "<div class='page'><div class='empty-state'>Loading admin dashboard</div></div>");
+  if (!admin) {
+    return renderShell({
+      mode: "admin",
+      subtitle: "Emily dashboard",
+      content: "<div class='page'><div class='empty-state'>Loading admin dashboard</div></div>"
+    });
+  }
   const selectedClient = getSelectedAdminClient();
 
-  return renderShell(
-    "Emily dashboard",
-    `
-      <main class="page">
+  return renderShell({
+    mode: "admin",
+    subtitle: "Emily dashboard",
+    context: admin,
+    content: `
+      <main class="page admin-page">
         ${renderAdminOverview(admin.overview)}
-        ${renderAdminClientExplorer(admin)}
-        ${selectedClient ? renderAdminClientWorkspace(selectedClient) : ""}
-        <section class="admin-grid">
-          <div class="admin-panel">
-            <div class="section-title">
-              <div>
-                <h2>Review queue</h2>
-                <p>${admin.reviewQueue.length} open review${admin.reviewQueue.length === 1 ? "" : "s"}</p>
+        <section class="admin-stage">
+          ${renderAdminClientExplorer(admin)}
+          <div class="admin-stage-main">
+            ${selectedClient ? renderAdminSelectedClient(selectedClient) : `<div class="empty-state">No client selected</div>`}
+            ${selectedClient ? renderAdminClientWorkspace(selectedClient) : ""}
+            <section class="admin-tail-grid">
+              <div class="admin-panel" id="admin-review-queue">
+                <div class="section-title">
+                  <div>
+                    <h2>Review queue</h2>
+                    <p>${admin.reviewQueue.length} open review${admin.reviewQueue.length === 1 ? "" : "s"}</p>
+                  </div>
+                </div>
+                <div class="queue-list">
+                  ${admin.reviewQueue.length ? admin.reviewQueue.map(renderQueueItem).join("") : `<div class="empty-state">No open reviews</div>`}
+                </div>
               </div>
-            </div>
-            <div class="queue-list">
-              ${admin.reviewQueue.length ? admin.reviewQueue.map(renderQueueItem).join("") : `<div class="empty-state">No open reviews</div>`}
-            </div>
+              <div class="stack">
+                <section class="admin-panel">
+                  <div class="section-title"><h3>Email delivery logs</h3></div>
+                  ${admin.emailLogs?.length ? admin.emailLogs.map(renderEmailLogRow).join("") : `<div class="empty-state">No recommendation emails sent yet</div>`}
+                </section>
+                <section class="admin-panel">
+                  <div class="section-title"><h3>BTBV service tracks</h3></div>
+                  <div class="support-track-list">${renderSupportTrackSummaryCards().join("")}</div>
+                </section>
+                <section class="admin-panel">
+                  <div class="section-title"><h3>Coverage and add-ons</h3></div>
+                  <div class="service-chip-list">${(admin.competitorServiceOpportunities || [])
+                    .map((item) => `<span class="pill">${escapeHtml(item)}</span>`)
+                    .join("")}</div>
+                </section>
+              </div>
+            </section>
+            ${renderGhlSyncFooter(getCurrentGhlSyncContext(), { panelClass: "admin-panel admin-bottom-panel" })}
           </div>
-          <aside class="stack">
-            <section class="admin-panel">
-              <div class="section-title"><h3>Clients</h3></div>
-              <div class="client-list">${admin.clients.map(renderClientRow).join("")}</div>
-            </section>
-            <section class="admin-panel">
-              <div class="section-title"><h3>Email delivery logs</h3></div>
-              ${admin.emailLogs?.length ? admin.emailLogs.map(renderEmailLogRow).join("") : `<div class="empty-state">No recommendation emails sent yet</div>`}
-            </section>
-            <section class="admin-panel">
-              <div class="section-title"><h3>BTBV service tracks</h3></div>
-              <div class="support-track-list">${renderSupportTrackSummaryCards().join("")}</div>
-            </section>
-            <section class="admin-panel">
-              <div class="section-title"><h3>Coverage and add-ons</h3></div>
-              <div class="service-chip-list">${(admin.competitorServiceOpportunities || [])
-                .map((item) => `<span class="pill">${escapeHtml(item)}</span>`)
-                .join("")}</div>
-            </section>
-          </aside>
         </section>
-        ${renderGhlSyncFooter(getCurrentGhlSyncContext(), { panelClass: "admin-panel admin-bottom-panel" })}
         ${renderActiveModal(selectedClient || { summary: { rooms_open: 0 }, permissions: { activeRoomLimit: 999 }, roomCards: [] })}
       </main>
     `
-  );
+  });
 }
 
 function renderAdminOverview(overview = {}) {
   const items = [
-    ["Active clients", overview.active_clients || 0],
-    ["Avg home score", `${overview.average_home_transformation_score || 0}%`],
-    ["Avg overall score", `${overview.average_overall_score || 0}%`],
-    ["Avg workbook priority", `${overview.average_workbook_priority_score || 0}%`],
-    ["Rooms with support tracks", overview.rooms_with_support_tracks || 0],
-    ["Vision-reviewed rooms", overview.rooms_with_vision_review || 0],
-    ["Freedom entries", overview.freedom_entries || 0],
-    ["Freedom released", overview.freedom_released || 0],
-    ["Evidence logs", overview.freedom_evidence_logs || 0],
-    ["Avg freedom shift", overview.average_freedom_shift_score || 0],
-    ["Rooms completed", overview.rooms_completed || 0],
-    ["Rooms open", overview.rooms_open || 0],
-    ["Needs attention", overview.rooms_needing_attention || 0],
-    ["Open reviews", overview.review_queue_count || 0],
-    ["Nurture rooms", overview.nurture_rooms || 0]
+    ["Active Clients", overview.active_clients || 0, "+ onboarding"],
+    ["Rooms in Review", overview.review_queue_count || 0, "high priority"],
+    ["In Nurture", overview.nurture_rooms || 0, "follow-up needed"],
+    ["Avg. Progress", `${overview.average_home_transformation_score || 0}%`, "across active rooms"],
+    ["High Priority", overview.rooms_needing_attention || 0, "action today"]
   ];
 
   return `
     <section class="admin-overview">
-      <div class="section-title">
-        <div>
-          <h2>Client overview</h2>
-          <p>${overview.total_clients || 0} total client${overview.total_clients === 1 ? "" : "s"} across current transformation work.</p>
-        </div>
-      </div>
       <div class="overview-grid">
         ${items
           .map(
-            ([label, value]) => `
+            ([label, value, note]) => `
               <div class="overview-tile">
-                <span>${escapeHtml(label)}</span>
                 <strong>${escapeHtml(value)}</strong>
+                <span>${escapeHtml(label)}</span>
+                <p>${escapeHtml(note)}</p>
               </div>
             `
           )
@@ -2592,8 +3073,7 @@ function renderAdminOverview(overview = {}) {
 
 function renderAdminClientExplorer(admin) {
   const query = state.adminClientSearch.toLowerCase();
-  const activeClients = (admin.clients || []).filter((client) => client.membership_status === "active");
-  const filtered = activeClients.filter((client) =>
+  const filtered = (admin.clients || []).filter((client) =>
     [client.user?.name, client.user?.email, client.membership_level, client.ghl_pipeline_stage]
       .join(" ")
       .toLowerCase()
@@ -2605,80 +3085,91 @@ function renderAdminClientExplorer(admin) {
   if (selected && selected.id !== state.selectedAdminClientId) state.selectedAdminClientId = selected.id;
 
   return `
-    <section class="admin-panel admin-client-explorer">
-      <div class="section-title">
-        <div>
-          <h2>Active client status</h2>
-          <p>Search and select a client to review current progress, next action, rooms, and membership access.</p>
-        </div>
+    <aside class="admin-panel admin-client-explorer" id="admin-client-explorer">
+      <label>Search clients <input data-action="admin-client-search" value="${escapeHtml(state.adminClientSearch)}" placeholder="Search clients..." /></label>
+      <div class="admin-filter-row">
+        <span class="pill ${!query ? "blue" : ""}">All</span>
+        <span class="pill">${admin.clients.filter((client) => client.membership_status === "active").length} Active</span>
+        <span class="pill">${admin.clients.filter((client) => client.summary.rooms_open > 0).length} Open</span>
+        <span class="pill">${admin.clients.filter((client) => client.membership_status !== "active").length} Other</span>
       </div>
-      <div class="admin-client-controls">
-        <label>Search clients <input data-action="admin-client-search" value="${escapeHtml(state.adminClientSearch)}" placeholder="Name, email, tier, pipeline" /></label>
-        <label>Select client
-          <select data-action="admin-client-select">
-            ${filtered
-              .map(
-                (client) =>
-                  `<option value="${escapeHtml(client.id)}" ${selected?.id === client.id ? "selected" : ""}>${escapeHtml(client.user.name)} - ${escapeHtml(client.membership_level)}</option>`
-              )
-              .join("")}
-          </select>
-        </label>
+      <div class="client-list">${filtered.length ? filtered.map(renderClientRow).join("") : `<div class="empty-state">No clients match that search</div>`}</div>
+      <div class="admin-tool-pills">
+        ${["intake", "freedom", "assistant", "warranty"]
+          .map(
+            (tool) => `
+              <button class="btn small ghost" data-action="client-tool" data-tool="${tool}" type="button">${escapeHtml(capitalize(tool))}</button>
+            `
+          )
+          .join("")}
       </div>
-      ${selected ? renderAdminSelectedClient(selected) : `<div class="empty-state">No active clients match that search</div>`}
-    </section>
+    </aside>
   `;
 }
 
 function renderAdminSelectedClient(client) {
+  const nextCheckIn = nextClientCheckInLabel().replace("Check-in · ", "");
   return `
-    <div class="selected-client-grid">
-      <div class="client-status-panel">
-        <div class="section-title">
+    <section class="admin-client-focus">
+      <div class="admin-client-summary">
+        <div class="admin-client-identity">
+          <div class="admin-avatar">${escapeHtml(initialsForName(client.user.name))}</div>
           <div>
-            <h3>${escapeHtml(client.user.name)}</h3>
-        <p>${escapeHtml(client.user.email)} / ${escapeHtml(client.membership_level)} / ${escapeHtml(client.ghl_pipeline_stage || "No pipeline stage")}</p>
+            <h2>${escapeHtml(client.user.name)}</h2>
+            <p>${escapeHtml(client.user.email)} ${client.phone ? `· ${escapeHtml(client.phone)}` : ""} · ${escapeHtml(client.membership_level)}</p>
           </div>
-          <span class="pill blue">${client.summary.home_transformation_score}% home score</span>
         </div>
-        <p>${escapeHtml(client.valueSummary || "")}</p>
-        <div class="room-metrics admin-room-metrics">
-          <div class="mini-metric"><span>Open rooms</span><strong>${client.summary.rooms_open}</strong></div>
-          <div class="mini-metric"><span>Needs attention</span><strong>${client.summary.rooms_needing_attention}</strong></div>
-          <div class="mini-metric"><span>Workbook priority</span><strong>${client.summary.average_workbook_priority_score || 0}%</strong></div>
-          <div class="mini-metric"><span>Support tracks</span><strong>${client.summary.rooms_with_support_tracks || 0}</strong></div>
-          <div class="mini-metric"><span>Next action</span><strong>${escapeHtml(client.summary.next_best_action)}</strong></div>
+        <div class="admin-client-summary-metrics">
+          <div><strong>${client.summary.home_transformation_score}</strong><span>Score</span></div>
+          <div><strong>${daysSinceIso(client.user.created_at)}</strong><span>Days</span></div>
+          <div><strong>${escapeHtml(nextCheckIn)}</strong><span>Check-in</span></div>
         </div>
-        <form class="stack" data-form="admin-client-notes">
-          <input type="hidden" name="client_id" value="${escapeHtml(client.id)}" />
-          <label>Internal notes
-            <textarea name="internal_notes" placeholder="Admin-only client notes, staffing context, service updates, or risks.">${escapeHtml(client.internal_notes || "")}</textarea>
-          </label>
-          <div class="button-row">
-            <button class="btn small secondary" type="submit" ${state.busy ? "disabled" : ""}>Save notes</button>
-            <button class="btn small ghost" data-action="admin-edit-client" data-client-id="${client.id}" type="button">Edit client profile</button>
-          </div>
-        </form>
-        <div class="freedom-summary-panel">
+      </div>
+
+      <div class="admin-client-focus-grid">
+        <section class="admin-panel admin-room-status-panel">
           <div class="section-title">
             <div>
-              <h4>Freedom Tool progress</h4>
-              <p>Release work, evidence logging, and latest emotional subject.</p>
+              <h3>Rooms</h3>
+              <p>${client.summary.rooms_completed}/${client.roomCards.length || 0} complete</p>
+            </div>
+            <button class="btn small clay" data-action="open-modal" data-modal="admin-room-add" type="button">Add room</button>
+          </div>
+          <div class="client-room-status-list">
+            ${(client.roomCards || []).map(renderAdminClientRoomStatus).join("")}
+          </div>
+        </section>
+
+        <aside class="admin-panel admin-notes-panel">
+          <div class="section-title">
+            <div>
+              <h3>Internal notes</h3>
+              <p>Staff only</p>
             </div>
           </div>
-          ${client.freedomTool?.last_subject ? `<p class="muted"><strong>Latest subject:</strong> ${escapeHtml(client.freedomTool.last_subject)}</p>` : `<p class="muted">No Freedom Tool entries logged yet.</p>`}
-          ${renderFreedomSummaryStrip(client.freedomTool || {}, "admin-summary-strip")}
-        </div>
+          <form class="stack" data-form="admin-client-notes">
+            <input type="hidden" name="client_id" value="${escapeHtml(client.id)}" />
+            <label>Internal notes
+              <textarea name="internal_notes" placeholder="Admin-only client notes, staffing context, service updates, or risks.">${escapeHtml(client.internal_notes || "")}</textarea>
+            </label>
+            <div class="button-row">
+              <button class="btn small secondary" type="submit" ${state.busy ? "disabled" : ""}>Save notes</button>
+              <button class="btn small ghost" data-action="admin-edit-client" data-client-id="${client.id}" type="button">Edit client profile</button>
+            </div>
+          </form>
+          <div class="ghl-contact-card">
+            <span class="section-kicker">GHL contact</span>
+            <strong>${escapeHtml(client.user.name)}${client.sync_status ? ` (${escapeHtml(client.sync_status)})` : ""}</strong>
+            <p>${client.ghl_pipeline_stage ? `Pipeline: ${escapeHtml(client.ghl_pipeline_stage)}` : "No pipeline stage set"}</p>
+          </div>
+        </aside>
       </div>
-      <div class="client-room-status-list">
-        ${(client.roomCards || []).map(renderAdminClientRoomStatus).join("")}
-      </div>
-    </div>
+    </section>
   `;
 }
 
 function renderAdminClientWorkspace(client) {
-  const selected = state.selectedClientTool || "intake";
+  const selected = state.selectedClientTool === "dashboard" ? "intake" : state.selectedClientTool || "intake";
   const tools = [
     ["intake", "Intake"],
     ["freedom", "Freedom Tool"],
@@ -2718,7 +3209,7 @@ function renderAdminClientWorkspace(client) {
 
 function renderAdminRoomManager(client) {
   return `
-    <section class="work-panel">
+    <section class="work-panel admin-room-manager">
       <div class="section-title">
         <div>
           <h2>Room intake and planning</h2>
@@ -2786,14 +3277,27 @@ function renderAdminClientProfileForm(client) {
 
 function renderAdminClientRoomStatus(room) {
   return `
-    <article class="compact-card">
+    <article class="compact-card admin-room-row">
       <div>
-        <strong>${escapeHtml(room.room_name)}</strong>
-        <p class="muted">${escapeHtml(room.status)} / ${escapeHtml(room.next_best_action)}</p>
-        ${room.support_track ? `<p class="muted room-track-line">${escapeHtml(room.support_track)}</p>` : ""}
-        ${renderRoomPhotoGallery(buildCardPhotoList(room), { className: "compact-photo-grid", empty: false })}
+        <div class="admin-room-row-head">
+          <strong>${escapeHtml(room.room_name)}</strong>
+          <span class="muted">${escapeHtml(room.status)}</span>
+        </div>
+        <div class="admin-room-row-body">
+          ${renderRoomPhotoGallery(buildCardPhotoList(room), { className: "compact-photo-grid", empty: false })}
+          <div>
+            <p class="muted">${escapeHtml(room.next_best_action)}</p>
+            <div class="admin-room-progress">
+              <div class="progress-track"><div class="progress-fill" style="--progress:${room.progress}%"></div></div>
+              <span>${room.progress}%</span>
+            </div>
+          </div>
+        </div>
       </div>
-      <span class="pill ${room.upsell_flag ? "clay" : "sage"}">${room.workbook_priority_score || room.transformation_score}% workbook</span>
+      <div class="button-row">
+        <span class="pill ${room.upsell_flag ? "clay" : "sage"}">${room.overall_score || room.transformation_score}</span>
+        <button class="btn small secondary" data-action="admin-room-edit" data-room-id="${room.id}" type="button">Review</button>
+      </div>
     </article>
   `;
 }
@@ -2878,15 +3382,20 @@ function renderQueueItem(task) {
 
 function renderClientRow(client) {
   return `
-    <article class="client-row">
-      <div>
-        <h3>${escapeHtml(client.user.name)}</h3>
-        <p class="muted">${escapeHtml(client.membership_level)} / ${escapeHtml(client.ghl_pipeline_stage || "No stage")}</p>
+    <article class="client-row ${state.selectedAdminClientId === client.id ? "selected" : ""}" data-action="admin-select-client" data-client-id="${client.id}">
+      <div class="client-row-main">
+        <div class="client-row-avatar">${escapeHtml(initialsForName(client.user.name))}</div>
+        <div>
+          <h3>${escapeHtml(client.user.name)}</h3>
+          <p class="muted">${escapeHtml(client.membership_level)} · ${escapeHtml(capitalize(client.membership_status || "active"))}</p>
+        </div>
       </div>
-      <div class="button-row">
-        <span class="pill blue">${client.summary.home_transformation_score}%</span>
-        <button class="btn small secondary" data-action="admin-select-client" data-client-id="${client.id}" type="button">View</button>
-        <button class="btn small ghost" data-action="sync-contact" data-client-id="${client.id}" type="button">Sync</button>
+      <div class="client-row-meta">
+        <div class="client-row-progress"><div class="progress-fill" style="--progress:${client.summary.home_transformation_score}%"></div></div>
+        <div class="client-row-foot">
+          <span>${client.summary.rooms_completed}/${client.roomCards.length || 0}</span>
+          ${client.summary.rooms_needing_attention ? `<span class="pill clay">${client.summary.rooms_needing_attention} review</span>` : ""}
+        </div>
       </div>
     </article>
   `;

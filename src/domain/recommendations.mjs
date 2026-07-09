@@ -340,13 +340,13 @@ function buildPhotoReviewReport({
   if (visionReview?.method === "vision") {
     return {
       status: "vision-reviewed",
-      badge_label: "Vision reviewed",
+      badge_label: "OpenAI vision",
       review_mode_label: "OpenAI vision review",
       provider: visionReview.provider || "openai",
       model: visionReview.model || "",
       detail: visionReview.detail || "",
       photo_count: photoCount,
-      summary: `OpenAI vision reviewed ${photoCount} uploaded before photo${photoCount === 1 ? "" : "s"} and merged the image findings with the intake scores.`,
+      summary: `OpenAI vision directly analyzed ${photoCount} uploaded before photo${photoCount === 1 ? "" : "s"} and merged the image findings with the intake scores.`,
       fallback_reason: "",
       room_summary: visionReview.room_summary || "",
       flow_summary: visionReview.flow_summary || "The uploaded photos were reviewed for flow, friction, and layout opportunities.",
@@ -367,7 +367,7 @@ function buildPhotoReviewReport({
 
   return {
     status: "draft",
-    badge_label: photoCount ? "Local draft" : "Awaiting reviewable photos",
+    badge_label: photoCount ? "Local draft only" : "Awaiting vision-ready photos",
     review_mode_label: "Local intake-and-photo-context draft",
     provider: openAiConfigured ? "openai" : "local",
     model: "",
@@ -375,8 +375,8 @@ function buildPhotoReviewReport({
     photo_count: photoCount,
     summary:
       photoCount > 0
-        ? `This room is currently using a local draft built from the intake scores, room context, and ${photoCount} uploaded before photo${photoCount === 1 ? "" : "s"}.`
-        : "This room is currently using a local draft built from the intake scores and workbook context until reviewable photos are uploaded.",
+        ? `This room is currently using a local draft built from the intake scores, room context, and ${photoCount} uploaded before photo${photoCount === 1 ? "" : "s"}. Direct photo vision analysis did not run for this review.`
+        : "This room is currently using a local draft built from the intake scores and workbook context until vision-reviewable photos are uploaded.",
     fallback_reason: fallbackReason,
     room_summary: `${room.room_name || room.room_type || "This room"} is carrying ${intensity} transformation intensity with a target of ${desiredOutcome.toLowerCase()}.`,
     flow_summary: buildDraftFlowSummary({ room, stress, clutter, energy, desiredOutcome }),
