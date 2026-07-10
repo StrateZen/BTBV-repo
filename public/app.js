@@ -463,6 +463,21 @@ async function login(email, password) {
 
 function setSession(session) {
   state.session = session;
+  state.dashboard = null;
+  state.admin = null;
+  state.assistantItems = [];
+  state.warranties = [];
+  state.freedomEntries = [];
+  state.communityPosts = [];
+  state.selectedAdminClientId = null;
+  state.selectedClientTool = "dashboard";
+  state.assistantCalendarDate = new Date().toISOString().slice(0, 10);
+  state.editingAssistantItemId = null;
+  state.editingWarrantyId = null;
+  state.activeModal = null;
+  state.draggingCalendarEvent = null;
+  state.roomDetails = {};
+  state.selectedRoomId = null;
   localStorage.setItem("reo-session", JSON.stringify(session));
 }
 
@@ -493,6 +508,12 @@ async function refreshData() {
     state.dashboard = await api(`/api/dashboard/client/${state.session.clientProfile.id}`);
     await loadUtilityDataForClient(state.session.clientProfile.id);
     if (!state.selectedRoomId && state.dashboard.roomCards.length) {
+      state.selectedRoomId = state.dashboard.roomCards[0].id;
+      await loadRoomDetails(state.selectedRoomId);
+    } else if (!state.dashboard.roomCards.length) {
+      state.selectedRoomId = null;
+      state.roomDetails = {};
+    } else if (!state.dashboard.roomCards.find((room) => room.id === state.selectedRoomId)) {
       state.selectedRoomId = state.dashboard.roomCards[0].id;
       await loadRoomDetails(state.selectedRoomId);
     }
@@ -995,6 +1016,8 @@ function renderClientApp() {
   const selectedCard = dashboard.roomCards.find((room) => room.id === state.selectedRoomId) || dashboard.roomCards[0];
   const selectedDetails = selectedCard ? state.roomDetails[selectedCard.id] : null;
   const selectedRoom = selectedDetails || selectedCard;
+  const isDashboardHome = (state.selectedClientTool || "dashboard") === "dashboard";
+  const isFirstRoomState = isDashboardHome && dashboard.roomCards.length === 0;
 
   return renderShell({
     mode: "client",
@@ -1003,32 +1026,38 @@ function renderClientApp() {
     content: `
       <main class="page client-page" id="dashboard-view">
         ${renderClientGreeting(dashboard)}
-        ${renderClientHero(dashboard)}
-        ${renderKpis(dashboard.summary)}
-        ${renderNextActionPanel(dashboard.summary.next_best_action, selectedRoom)}
+        ${
+          isFirstRoomState
+            ? renderClientFirstRoomState(dashboard)
+            : `
+                ${renderClientHero(dashboard)}
+                ${renderKpis(dashboard.summary)}
+                ${renderNextActionPanel(dashboard.summary.next_best_action, selectedRoom)}
 
-        <section class="room-browser-layout">
-          <section class="work-panel room-browser-panel">
-            <div class="section-title room-browser-head">
-              <div>
-                <span class="section-kicker">Your rooms</span>
-                <h2>Transformation spaces</h2>
-                <p>Progress, recommendation readiness, and visible movement across your home.</p>
-              </div>
-              <div class="button-row room-browser-actions">
-                <span class="muted">${dashboard.summary.rooms_completed} of ${dashboard.roomCards.length || 0} complete</span>
-                <button class="btn small ghost" data-action="open-modal" data-modal="intake" type="button">+ Add Room</button>
-              </div>
-            </div>
-            <div class="room-card-grid">
-              ${dashboard.roomCards.map((room) => renderRoomCard(room, room.id === selectedCard?.id)).join("")}
-            </div>
-          </section>
+                <section class="room-browser-layout">
+                  <section class="work-panel room-browser-panel">
+                    <div class="section-title room-browser-head">
+                      <div>
+                        <span class="section-kicker">Your rooms</span>
+                        <h2>Transformation spaces</h2>
+                        <p>Progress, recommendation readiness, and visible movement across your home.</p>
+                      </div>
+                      <div class="button-row room-browser-actions">
+                        <span class="muted">${dashboard.summary.rooms_completed} of ${dashboard.roomCards.length || 0} complete</span>
+                        <button class="btn small ghost" data-action="open-modal" data-modal="intake" type="button">+ Add Room</button>
+                      </div>
+                    </div>
+                    <div class="room-card-grid">
+                      ${dashboard.roomCards.map((room) => renderRoomCard(room, room.id === selectedCard?.id)).join("")}
+                    </div>
+                  </section>
 
-          <aside class="room-detail-rail">
-            ${renderRoomDetail(selectedRoom)}
-          </aside>
-        </section>
+                  <aside class="room-detail-rail">
+                    ${renderRoomDetail(selectedRoom)}
+                  </aside>
+                </section>
+              `
+        }
 
         ${renderClientToolSection(dashboard)}
 
@@ -1040,6 +1069,52 @@ function renderClientApp() {
       </main>
     `
   });
+}
+
+function renderClientFirstRoomState(dashboard) {
+  const membershipLabel = dashboard.clientProfile?.membership_level || "Membership";
+  return `
+    <section class="client-panel first-room-panel">
+      <div class="first-room-copy">
+        <span class="section-kicker">Welcome</span>
+        <h2>Start your first transformation space</h2>
+        <p>${escapeHtml(dashboard.valueSummary)}</p>
+        <div class="button-row">
+          <button class="btn sage" data-action="open-modal" data-modal="intake" type="button">Start first room</button>
+          <button class="btn ghost" data-action="workspace-nav" data-tool="intake" type="button">Open intake workspace</button>
+        </div>
+      </div>
+      <div class="first-room-plan">
+        <article class="first-room-step">
+          <strong>1. Add the room</strong>
+          <p>Name the room, choose the type, and set the desired outcome.</p>
+        </article>
+        <article class="first-room-step">
+          <strong>2. Upload before photos</strong>
+          <p>Give Emily and the AI enough visual context to assess flow, friction, and clutter patterns.</p>
+        </article>
+        <article class="first-room-step">
+          <strong>3. Capture how it feels</strong>
+          <p>Complete the intake scores so the dashboard can track emotional and functional movement over time.</p>
+        </article>
+      </div>
+    </section>
+    <section class="kpi-showcase starter-kpis">
+      ${[
+        ["Rooms ready", "0", "add your first intake"],
+        ["Membership", membershipLabel, "current support tier"],
+        ["Next action", "Intake", "start with one room"],
+        [
+          "AI review",
+          dashboard.permissions?.aiReviewLimit >= 99 ? "Included" : `${dashboard.permissions?.aiReviewLimit || 0} available`,
+          "based on membership"
+        ]
+      ]
+        .map((item) => renderStarterKpi(item))
+        .join("")}
+    </section>
+    ${renderNextActionPanel("Add your first room intake", null)}
+  `;
 }
 
 function renderShell({ mode = "client", subtitle = "", content = "", context = null } = {}) {
@@ -1287,6 +1362,18 @@ function renderShowcaseKpi([label, value, chartValue, note]) {
         <p>${escapeHtml(note)}</p>
       </div>
       ${renderMiniChart(chartValue, label)}
+    </article>
+  `;
+}
+
+function renderStarterKpi([label, value, note]) {
+  return `
+    <article class="showcase-kpi starter-kpi">
+      <div>
+        <strong>${escapeHtml(value)}</strong>
+        <span>${escapeHtml(label)}</span>
+        <p>${escapeHtml(note)}</p>
+      </div>
     </article>
   `;
 }

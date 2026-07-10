@@ -2163,6 +2163,53 @@ textarea:focus {
   margin: 8px 0 0;
 }
 
+.first-room-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  gap: 20px;
+  padding: 26px;
+  margin-bottom: 20px;
+}
+
+.first-room-copy h2 {
+  margin: 8px 0 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2rem, 4vw, 2.8rem);
+}
+
+.first-room-copy p {
+  max-width: 58ch;
+}
+
+.first-room-plan {
+  display: grid;
+  gap: 12px;
+}
+
+.first-room-step {
+  border: 1px solid rgba(109, 172, 179, 0.22);
+  border-radius: 8px;
+  padding: 16px 18px;
+  background: rgba(248, 252, 251, 0.9);
+}
+
+.first-room-step strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.starter-kpis {
+  margin-bottom: 20px;
+}
+
+.starter-kpi {
+  align-items: start;
+}
+
+.starter-kpi strong {
+  font-size: 1.8rem;
+}
+
 .room-browser-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 380px;
@@ -3119,6 +3166,7 @@ textarea:focus {
   }
 
   .transformation-hero,
+  .first-room-panel,
   .room-browser-layout,
   .admin-stage,
   .admin-tail-grid {
