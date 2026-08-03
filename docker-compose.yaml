@@ -1,0 +1,78 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: room-energy-organizer
+    restart: unless-stopped
+    expose:
+      - "3000"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATA_FILE: /app/data/db.json
+      APP_SEED_MODE: ${APP_SEED_MODE:-blank}
+      ENABLE_DEMO_LOGIN: ${ENABLE_DEMO_LOGIN:-false}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_VISION_MODEL: ${OPENAI_VISION_MODEL:-gpt-4.1-mini}
+      OPENAI_VISION_DETAIL: ${OPENAI_VISION_DETAIL:-high}
+      GHL_API_KEY: ${GHL_API_KEY:-}
+      GHL_LOCATION_ID: ${GHL_LOCATION_ID:-}
+      GHL_API_BASE_URL: ${GHL_API_BASE_URL:-https://services.leadconnectorhq.com}
+      GHL_API_VERSION: ${GHL_API_VERSION:-2021-07-28}
+      GHL_AUTO_SYNC_INTERVAL_MS: ${GHL_AUTO_SYNC_INTERVAL_MS:-3600000}
+      EMAIL_DELIVERY_WEBHOOK_URL: ${EMAIL_DELIVERY_WEBHOOK_URL:-}
+      REMINDER_INTERVAL_MS: ${REMINDER_INTERVAL_MS:-60000}
+      INITIAL_ADMIN_NAME: ${INITIAL_ADMIN_NAME:-}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
+      INITIAL_EMILY_NAME: ${INITIAL_EMILY_NAME:-}
+      INITIAL_EMILY_EMAIL: ${INITIAL_EMILY_EMAIL:-}
+      INITIAL_EMILY_PASSWORD: ${INITIAL_EMILY_PASSWORD:-}
+      GHL_WORKFLOW_CLIENT_CREATED_URL: ${GHL_WORKFLOW_CLIENT_CREATED_URL:-}
+      GHL_WORKFLOW_MEMBERSHIP_UPDATED_URL: ${GHL_WORKFLOW_MEMBERSHIP_UPDATED_URL:-}
+      GHL_WORKFLOW_ROOM_CREATED_URL: ${GHL_WORKFLOW_ROOM_CREATED_URL:-}
+      GHL_WORKFLOW_ROOM_INTAKE_SUBMITTED_URL: ${GHL_WORKFLOW_ROOM_INTAKE_SUBMITTED_URL:-}
+      GHL_WORKFLOW_AI_REVIEW_COMPLETED_URL: ${GHL_WORKFLOW_AI_REVIEW_COMPLETED_URL:-}
+      GHL_WORKFLOW_EMILY_REVIEW_NEEDED_URL: ${GHL_WORKFLOW_EMILY_REVIEW_NEEDED_URL:-}
+      GHL_WORKFLOW_RECOMMENDATION_SENT_URL: ${GHL_WORKFLOW_RECOMMENDATION_SENT_URL:-}
+      GHL_WORKFLOW_ROOM_AFTER_PHOTOS_REQUESTED_URL: ${GHL_WORKFLOW_ROOM_AFTER_PHOTOS_REQUESTED_URL:-}
+      GHL_WORKFLOW_ROOM_COMPLETED_URL: ${GHL_WORKFLOW_ROOM_COMPLETED_URL:-}
+      GHL_WORKFLOW_ROOM_NURTURE_STARTED_URL: ${GHL_WORKFLOW_ROOM_NURTURE_STARTED_URL:-}
+      GHL_WORKFLOW_UPSELL_IDENTIFIED_URL: ${GHL_WORKFLOW_UPSELL_IDENTIFIED_URL:-}
+      GHL_WORKFLOW_ROOM_UPDATED_URL: ${GHL_WORKFLOW_ROOM_UPDATED_URL:-}
+      GHL_WORKFLOW_ASSISTANT_UPDATED_URL: ${GHL_WORKFLOW_ASSISTANT_UPDATED_URL:-}
+      GHL_WORKFLOW_WARRANTY_UPDATED_URL: ${GHL_WORKFLOW_WARRANTY_UPDATED_URL:-}
+    volumes:
+      - room-energy-organizer-data:/app/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+  proxy:
+    image: caddy:2.8-alpine
+    container_name: room-energy-organizer-proxy
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-localhost}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  room-energy-organizer-data:
+  caddy-data:
+  caddy-config:
