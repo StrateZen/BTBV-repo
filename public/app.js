@@ -1025,7 +1025,6 @@ function renderClientApp() {
     context: dashboard,
     content: `
       <main class="page client-page" id="dashboard-view">
-        ${renderClientGreeting(dashboard)}
         ${
           isFirstRoomState
             ? renderClientFirstRoomState(dashboard)
@@ -1138,12 +1137,8 @@ function renderClientTopbar(dashboard, subtitle) {
   const nextCheckIn = nextClientCheckInLabel();
   const initials = initialsForName(dashboard?.user?.name || state.session?.user?.name || "BV");
   return `
-    <div class="brand topbar-brand">
-      <img class="brand-logo" src="/assets/btbv-logo.png" alt="Built to Be Visible" />
-      <div>
-        <h1>Built to Be Visible</h1>
-        <p>${escapeHtml(subtitle)}</p>
-      </div>
+    <div class="client-topbar-context">
+      ${dashboard ? renderClientGreeting(dashboard, "client-greeting client-topbar-greeting") : "<span class=\"client-topbar-loading\">Loading transformation</span>"}
     </div>
     <div class="top-actions">
       <span class="pill">${escapeHtml(capitalize(state.session?.user?.role || "client"))} view</span>
@@ -1252,9 +1247,9 @@ function renderClientBottomNav() {
   `;
 }
 
-function renderClientGreeting(dashboard) {
+function renderClientGreeting(dashboard, className = "client-greeting") {
   return `
-    <section class="client-greeting">
+    <section class="${className}">
       <span class="section-kicker">${escapeHtml(dayGreeting())}</span>
       <div class="client-greeting-row">
         <h1>${escapeHtml(dashboard.user.name)}</h1>

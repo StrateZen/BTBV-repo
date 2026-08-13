@@ -1935,6 +1935,38 @@ textarea:focus {
   background: rgba(255, 251, 246, 0.94);
 }
 
+.client-topbar-context {
+  min-width: 0;
+}
+
+.client-topbar-greeting {
+  gap: 2px;
+  margin: 0;
+}
+
+.client-topbar-greeting .section-kicker {
+  font-size: 0.64rem;
+  letter-spacing: 0.16em;
+}
+
+.client-topbar-greeting .client-greeting-row {
+  gap: 12px;
+}
+
+.client-topbar-greeting h1 {
+  font-size: clamp(1.35rem, 2.5vw, 2rem);
+  line-height: 1.05;
+}
+
+.client-topbar-greeting p {
+  font-size: 0.86rem;
+}
+
+.client-topbar-loading {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
 .topbar-brand {
   min-width: 0;
 }
@@ -3235,6 +3267,14 @@ textarea:focus {
   .admin-login-meta,
   .showcase-kpi p {
     display: none;
+  }
+
+  .client-topbar-greeting h1 {
+    font-size: 1.25rem;
+  }
+
+  .client-topbar-greeting p {
+    font-size: 0.76rem;
   }
 
   .topbar-brand .brand-logo,
