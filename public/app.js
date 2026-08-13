@@ -20,6 +20,7 @@ const state = {
   editingWarrantyId: null,
   activeModal: null,
   draggingCalendarEvent: null,
+  roomPhotoViews: {},
   roomDetails: {},
   selectedRoomId: null,
   authMode: "login",
@@ -59,8 +60,18 @@ document.addEventListener("click", async (event) => {
       state.freedomEntries = [];
       state.communityPosts = [];
       state.selectedClientTool = "dashboard";
+      state.roomPhotoViews = {};
       state.activeModal = null;
       render();
+    }
+
+    if (action === "room-photo-view") {
+      const roomId = actionEl.dataset.roomId;
+      const photoView = actionEl.dataset.photoView;
+      if (roomId && ["before", "after"].includes(photoView)) {
+        state.roomPhotoViews[roomId] = photoView;
+        render();
+      }
     }
 
     if (action === "workspace-nav") {
@@ -1136,15 +1147,19 @@ function renderShell({ mode = "client", subtitle = "", content = "", context = n
 function renderClientTopbar(dashboard, subtitle) {
   const nextCheckIn = nextClientCheckInLabel();
   const initials = initialsForName(dashboard?.user?.name || state.session?.user?.name || "BV");
+  const membershipLevel = dashboard?.clientProfile?.membership_level || "Membership";
   return `
     <div class="client-topbar-context">
       ${dashboard ? renderClientGreeting(dashboard, "client-greeting client-topbar-greeting") : "<span class=\"client-topbar-loading\">Loading transformation</span>"}
     </div>
-    <div class="top-actions">
-      <span class="pill">${escapeHtml(capitalize(state.session?.user?.role || "client"))} view</span>
-      <span class="pill sage">${escapeHtml(nextCheckIn)}</span>
-      <div class="avatar-badge">${escapeHtml(initials)}</div>
-      <button class="btn small ghost" data-action="logout" type="button">Sign out</button>
+    <div class="client-account">
+      <div class="top-actions client-account-actions">
+        <span class="pill">${escapeHtml(capitalize(state.session?.user?.role || "client"))} view</span>
+        <span class="pill sage">${escapeHtml(nextCheckIn)}</span>
+        <div class="avatar-badge">${escapeHtml(initials)}</div>
+        <button class="btn small ghost" data-action="logout" type="button">Sign out</button>
+      </div>
+      <span class="client-membership-label">${escapeHtml(membershipLevel)} membership</span>
     </div>
   `;
 }
@@ -1177,8 +1192,6 @@ function renderAdminTopbar() {
 
 function renderClientSidebar(dashboard) {
   const selected = state.selectedClientTool || "dashboard";
-  const membershipLevel = dashboard?.clientProfile?.membership_level || "Membership";
-  const cadence = dashboard?.permissions?.followUpCadence || "Guided";
   const navItems = [
     ["dashboard", "Dashboard"],
     ["intake", "Intake"],
@@ -1192,10 +1205,6 @@ function renderClientSidebar(dashboard) {
     <aside class="workspace-sidebar">
       <div class="sidebar-brand">
         <img class="brand-logo sidebar-logo" src="/assets/btbv-logo.png" alt="Built to Be Visible" />
-        <div>
-          <strong>Built to Be Visible</strong>
-          <span>${escapeHtml(membershipLevel)}</span>
-        </div>
       </div>
 
       <div class="sidebar-section-label">Workspace</div>
@@ -1212,11 +1221,6 @@ function renderClientSidebar(dashboard) {
           .join("")}
       </nav>
 
-      <div class="sidebar-membership-card">
-        <span class="section-kicker">Premium</span>
-        <strong>${escapeHtml(membershipLevel)}</strong>
-        <p>${escapeHtml(cadence)} support cadence</p>
-      </div>
     </aside>
   `;
 }
@@ -1586,8 +1590,11 @@ function roomScoreValue(room) {
 }
 
 function renderRoomCard(room, selected) {
-  const displayPhoto = room.after_photo || room.before_photo;
-  const showingAfter = Boolean(room.after_photo);
+  const beforePhoto = room.before_photo;
+  const afterPhoto = room.after_photo;
+  const requestedPhotoView = state.roomPhotoViews[room.id] || (afterPhoto ? "after" : "before");
+  const showingAfter = requestedPhotoView === "after" && Boolean(afterPhoto);
+  const displayPhoto = showingAfter ? afterPhoto : beforePhoto || afterPhoto;
   const roomScore = roomScoreValue(room);
   return `
     <article class="room-card visual-room-card ${selected ? "selected" : ""}" data-action="select-room" data-room-id="${room.id}">
@@ -1598,9 +1605,9 @@ function renderRoomCard(room, selected) {
             : `<div class="room-media-empty">Not yet started</div>`
         }
         <span class="room-score-badge">${roomScore} / 100</span>
-        <div class="room-photo-toggle">
-          <span class="${!showingAfter ? "active" : ""}">Before</span>
-          <span class="${showingAfter ? "active" : ""}">After</span>
+        <div class="room-photo-toggle" role="group" aria-label="${escapeHtml(room.room_name)} photos">
+          <button class="${!showingAfter ? "active" : ""}" data-action="room-photo-view" data-room-id="${room.id}" data-photo-view="before" aria-pressed="${!showingAfter}" type="button">Before</button>
+          <button class="${showingAfter ? "active" : ""}" data-action="room-photo-view" data-room-id="${room.id}" data-photo-view="after" aria-pressed="${showingAfter}" type="button" ${afterPhoto ? "" : "disabled"}>After</button>
         </div>
       </div>
       <div class="room-card-copy">
@@ -1639,7 +1646,9 @@ function renderRoomDetail(room) {
   const roomScore = roomScoreValue(room);
   const beforePhoto = room.before_photo || room.photos?.find((photo) => photo.photo_type === "before")?.photo_url;
   const afterPhoto = room.after_photo || room.photos?.find((photo) => photo.photo_type === "after")?.photo_url;
-  const heroPhoto = afterPhoto || beforePhoto;
+  const requestedPhotoView = state.roomPhotoViews[room.id] || (afterPhoto ? "after" : "before");
+  const showingAfter = requestedPhotoView === "after" && Boolean(afterPhoto);
+  const heroPhoto = showingAfter ? afterPhoto : beforePhoto || afterPhoto;
   const ai = room.aiRecommendations?.[room.aiRecommendations.length - 1];
   const review = room.emilyReviews?.find((item) => item.sent_to_client) || room.emilyReviews?.[room.emilyReviews.length - 1];
   const finalRecommendation = room.final_recommendation || review?.final_recommendation || ai?.client_message_draft;
@@ -1667,9 +1676,9 @@ function renderRoomDetail(room) {
             ? `<img src="${heroPhoto}" alt="${escapeHtml(room.room_name)} featured room photo" />`
             : `<div class="empty-large">Upload room photos to begin</div>`
         }
-        <div class="room-photo-toggle room-detail-toggle">
-          <span class="${!afterPhoto ? "active" : ""}">Before</span>
-          <span class="${afterPhoto ? "active" : ""}">After</span>
+        <div class="room-photo-toggle room-detail-toggle" role="group" aria-label="${escapeHtml(room.room_name)} photos">
+          <button class="${!showingAfter ? "active" : ""}" data-action="room-photo-view" data-room-id="${room.id}" data-photo-view="before" aria-pressed="${!showingAfter}" type="button">Before</button>
+          <button class="${showingAfter ? "active" : ""}" data-action="room-photo-view" data-room-id="${room.id}" data-photo-view="after" aria-pressed="${showingAfter}" type="button" ${afterPhoto ? "" : "disabled"}>After</button>
         </div>
       </div>
       <div class="room-detail-head">

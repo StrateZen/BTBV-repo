@@ -1844,7 +1844,7 @@ textarea:focus {
 }
 
 .sidebar-logo {
-  width: 86px;
+  width: 106px;
 }
 
 .sidebar-brand strong,
@@ -1933,6 +1933,25 @@ textarea:focus {
 
 .client-shell .topbar {
   background: rgba(255, 251, 246, 0.94);
+  padding-top: 26px;
+}
+
+.client-account {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+}
+
+.client-account-actions {
+  gap: 8px;
+}
+
+.client-membership-label {
+  padding-right: 2px;
+  color: var(--sage-deep);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
 }
 
 .client-topbar-context {
@@ -2362,20 +2381,33 @@ textarea:focus {
   background: rgba(74, 83, 84, 0.72);
 }
 
-.room-photo-toggle span {
+.room-photo-toggle button {
+  appearance: none;
   display: inline-flex;
   min-height: 28px;
   align-items: center;
   border-radius: 999px;
+  border: 0;
   padding: 0 12px;
   color: rgba(255, 255, 255, 0.72);
+  background: transparent;
+  cursor: pointer;
   font-size: 0.78rem;
   font-weight: 700;
 }
 
-.room-photo-toggle span.active {
+.room-photo-toggle button:hover:not(:disabled) {
+  color: #fff;
+}
+
+.room-photo-toggle button.active {
   color: var(--ink);
   background: #fff;
+}
+
+.room-photo-toggle button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
 }
 
 .room-card-copy {
@@ -3263,6 +3295,10 @@ textarea:focus {
     padding: 12px 16px;
   }
 
+  .client-shell .topbar {
+    padding-top: 16px;
+  }
+
   .topbar-brand p,
   .admin-login-meta,
   .showcase-kpi p {
@@ -3277,8 +3313,7 @@ textarea:focus {
     font-size: 0.76rem;
   }
 
-  .topbar-brand .brand-logo,
-  .sidebar-logo {
+  .topbar-brand .brand-logo {
     width: 72px;
   }
 
