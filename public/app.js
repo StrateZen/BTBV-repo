@@ -1139,7 +1139,7 @@ function renderClientTopbar(dashboard, subtitle) {
   const initials = initialsForName(dashboard?.user?.name || state.session?.user?.name || "BV");
   return `
     <div class="brand topbar-brand">
-      <div class="brand-mark">BV</div>
+      <img class="brand-logo" src="/assets/btbv-logo.png" alt="Built to Be Visible" />
       <div>
         <h1>Built to Be Visible</h1>
         <p>${escapeHtml(subtitle)}</p>
@@ -1157,7 +1157,7 @@ function renderClientTopbar(dashboard, subtitle) {
 function renderAdminTopbar() {
   return `
     <div class="brand topbar-brand">
-      <div class="brand-mark">BV</div>
+      <img class="brand-logo" src="/assets/btbv-logo.png" alt="Built to Be Visible" />
       <div>
         <h1>Built to Be Visible</h1>
         <p>Staff workspace</p>
@@ -1196,7 +1196,7 @@ function renderClientSidebar(dashboard) {
   return `
     <aside class="workspace-sidebar">
       <div class="sidebar-brand">
-        <div class="brand-mark">BV</div>
+        <img class="brand-logo sidebar-logo" src="/assets/btbv-logo.png" alt="Built to Be Visible" />
         <div>
           <strong>Built to Be Visible</strong>
           <span>${escapeHtml(membershipLevel)}</span>

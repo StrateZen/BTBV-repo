@@ -96,6 +96,14 @@ img {
   font-weight: 800;
 }
 
+.brand-logo {
+  display: block;
+  width: 110px;
+  height: auto;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
 .brand h1 {
   margin: 0;
   font-size: 1rem;
@@ -1818,10 +1826,14 @@ textarea:focus {
 
 .sidebar-brand {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   padding: 8px 8px 18px;
   border-bottom: 1px solid rgba(216, 201, 180, 0.82);
+}
+
+.sidebar-logo {
+  width: 86px;
 }
 
 .sidebar-brand strong,
@@ -1914,6 +1926,10 @@ textarea:focus {
 
 .topbar-brand {
   min-width: 0;
+}
+
+.topbar-brand .brand-logo {
+  width: 104px;
 }
 
 .avatar-badge {
@@ -3208,6 +3224,11 @@ textarea:focus {
   .admin-login-meta,
   .showcase-kpi p {
     display: none;
+  }
+
+  .topbar-brand .brand-logo,
+  .sidebar-logo {
+    width: 72px;
   }
 
   .top-actions {
