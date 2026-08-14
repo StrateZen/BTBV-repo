@@ -3,7 +3,7 @@ import { calculateRoomTransformation } from "../domain/scoring.mjs";
 import { deflateSync } from "node:zlib";
 
 const now = new Date().toISOString();
-export const SEED_VERSION = 10;
+export const SEED_VERSION = 11;
 const DATA_COLLECTIONS = [
   "users",
   "clientProfiles",
@@ -21,7 +21,9 @@ const DATA_COLLECTIONS = [
   "warranties",
   "freedomEntries",
   "communityPosts",
-  "communityComments"
+  "communityComments",
+  "sessions",
+  "portalTokens"
 ];
 
 export function buildSeedData() {

@@ -23,6 +23,7 @@ const state = {
   roomPhotoViews: {},
   roomDetails: {},
   selectedRoomId: null,
+  portalError: "",
   authMode: "login",
   busy: false
 };
@@ -31,7 +32,31 @@ init();
 
 async function init() {
   state.bootstrap = await api("/api/bootstrap");
-  if (state.session) await refreshData();
+  const portalToken = new URLSearchParams(window.location.search).get("portal_token");
+  if (portalToken) {
+    try {
+      const portalSession = await api(`/api/portal/consume?portal_token=${encodeURIComponent(portalToken)}`);
+      setSession(portalSession);
+    } catch (error) {
+      localStorage.removeItem("reo-session");
+      state.session = null;
+      state.portalError = error.message;
+    } finally {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }
+
+  if (state.session) {
+    try {
+      await refreshData();
+    } catch (error) {
+      localStorage.removeItem("reo-session");
+      state.session = null;
+      state.dashboard = null;
+      state.admin = null;
+      state.portalError = error.message;
+    }
+  }
   render();
 }
 
@@ -51,6 +76,11 @@ document.addEventListener("click", async (event) => {
     }
 
     if (action === "logout") {
+      try {
+        await api("/api/auth/logout", { method: "POST" });
+      } catch {
+        // Clear the local session even if the server-side token has expired.
+      }
       localStorage.removeItem("reo-session");
       state.session = null;
       state.dashboard = null;
@@ -487,6 +517,7 @@ async function login(email, password) {
 
 function setSession(session) {
   state.session = session;
+  state.portalError = "";
   state.dashboard = null;
   state.admin = null;
   state.assistantItems = [];
@@ -990,6 +1021,7 @@ function renderAuth() {
             <button class="tab ${isLogin ? "active" : ""}" data-action="auth-mode" data-mode="login" type="button">Login</button>
             <button class="tab ${!isLogin ? "active" : ""}" data-action="auth-mode" data-mode="register" type="button">Register</button>
           </div>
+          ${state.portalError ? `<p class="form-error">${escapeHtml(state.portalError)}</p>` : ""}
           ${
             isLogin
               ? `<form class="stack" data-form="login">
@@ -3678,11 +3710,14 @@ function renderPhotoSlot(src, label) {
 }
 
 async function api(path, options = {}) {
+  const headers = {
+    "Content-Type": "application/json"
+  };
+  if (state.session?.token) headers.Authorization = `Bearer ${state.session.token}`;
+
   const response = await fetch(path, {
     method: options.method || "GET",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers,
     body: options.body ? JSON.stringify(options.body) : undefined
   });
   const payload = await response.json();

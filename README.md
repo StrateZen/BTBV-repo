@@ -35,6 +35,7 @@ No package install is required. The MVP uses Node's built-in HTTP server and a J
 - Dockerfile for Hostinger-style container hosting.
 - Membership-tier permissions for active rooms, AI reviews, Emily reviews, direct access, booking, cadence, advanced KPIs, and energy-work depth.
 - GoHighLevel contact sync, tag sync, field map exposure, membership webhook, workflow trigger hooks, and sync logs.
+- HighLevel Client Portal entry at `/portal`, iframe-safe headers, server sessions, and one-time client portal handoff links.
 
 ## API Surface
 
@@ -63,6 +64,8 @@ Core endpoints match the playbook:
 - `POST /api/ghl/sync/tags/:clientId`
 - `POST /api/ghl/trigger-workflow`
 - `GET /api/ghl/sync-logs`
+- `GET /api/portal/consume?portal_token=...`
+- `POST /api/portal/sso-tokens`
 
 ## GoHighLevel Mode
 
@@ -116,6 +119,9 @@ The shortest deployment path is:
    - `OPENAI_API_KEY`
    - `GHL_API_KEY`
    - `GHL_LOCATION_ID`
+   - `PORTAL_BASE_URL`
+   - `PORTAL_SSO_SECRET`
+   - `PORTAL_ALLOWED_FRAME_ANCESTORS`
    - `EMAIL_DELIVERY_WEBHOOK_URL`
    - `INITIAL_ADMIN_EMAIL`
    - `INITIAL_ADMIN_PASSWORD`

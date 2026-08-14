@@ -1,10 +1,11 @@
 import { createServer } from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadDefaultEnvFiles } from "./config/env.mjs";
-import { publicUser, hashPassword, verifyPassword } from "./domain/auth.mjs";
+import { publicUser, createOpaqueToken, hashOpaqueToken, hashPassword, verifyPassword } from "./domain/auth.mjs";
 import {
   ASSISTANT_ITEM_LABELS,
   ASSISTANT_ITEM_TYPES,
@@ -48,6 +49,8 @@ const publicDir = path.resolve(__dirname, "../public");
 loadDefaultEnvFiles();
 const host = process.env.HOST || "127.0.0.1";
 const port = Number(process.env.PORT || 3000);
+const SESSION_TTL_MS = Math.max(60 * 60 * 1000, Number(process.env.SESSION_TTL_MS || 7 * 24 * 60 * 60 * 1000));
+const PORTAL_SSO_TOKEN_TTL_MS = Math.max(60 * 1000, Number(process.env.PORTAL_SSO_TOKEN_TTL_SECONDS || 300) * 1000);
 let reminderSchedulerRunning = false;
 let ghlHourlySyncRunning = false;
 
@@ -233,6 +236,11 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (method === "GET" && pathname === "/api/portal/consume") {
+    await consumePortalToken(req, res, url);
+    return;
+  }
+
   if (method === "POST" && pathname === "/api/auth/register") {
     const body = await readJson(req);
     const email = String(body.email || "").trim().toLowerCase();
@@ -270,7 +278,7 @@ async function handleApi(req, res, url) {
     }, "client");
 
     await syncClientAfterChange(clientProfile.id, "client.created");
-    sendJson(res, 201, sessionPayload(user, clientProfile));
+    sendJson(res, 201, await sessionPayload(user, clientProfile));
     return;
   }
 
@@ -284,8 +292,56 @@ async function handleApi(req, res, url) {
     }
 
     const clientProfile = store.findBy("clientProfiles", (profile) => profile.user_id === user.id);
-    sendJson(res, 200, sessionPayload(user, clientProfile));
+    sendJson(res, 200, await sessionPayload(user, clientProfile));
     return;
+  }
+
+  if (method === "POST" && pathname === "/api/portal/sso-tokens") {
+    const requester = authenticateRequest(req);
+    if (!isStaffRole(requester?.user?.role) && !portalSecretMatches(req)) {
+      sendJson(res, 401, { error: "Portal token creation requires staff access or the portal integration secret." });
+      return;
+    }
+    await createPortalToken(req, res);
+    return;
+  }
+
+  const externalWebhook = method === "POST" && pathname === "/api/ghl/webhooks/membership-updated";
+  const auth = authenticateRequest(req);
+  if (!auth && !externalWebhook) {
+    sendJson(res, 401, { error: "Authentication required." });
+    return;
+  }
+
+  if (externalWebhook && process.env.GHL_WEBHOOK_SECRET && !portalSecretMatches(req, "GHL_WEBHOOK_SECRET")) {
+    sendJson(res, 401, { error: "Invalid GHL webhook secret." });
+    return;
+  }
+
+  if (method === "POST" && pathname === "/api/auth/logout") {
+    if (auth?.session) await store.delete("sessions", auth.session.id);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (auth && isAdminOnlyPath(pathname) && !isStaffRole(auth.user.role)) {
+    sendJson(res, 403, { error: "Staff access required." });
+    return;
+  }
+
+  const explicitClientId = clientIdFromPath(pathname);
+  if (auth?.user.role === "client" && explicitClientId && auth.clientProfile?.id !== explicitClientId) {
+    sendJson(res, 403, { error: "You can only access your own client information." });
+    return;
+  }
+
+  const roomIdFromPath = pathname.match(/^\/api\/rooms\/([^/]+)/)?.[1];
+  if (auth?.user.role === "client" && roomIdFromPath) {
+    const room = store.find("rooms", roomIdFromPath);
+    if (!room || room.client_id !== auth.clientProfile?.id) {
+      sendJson(res, 403, { error: "You can only access your own rooms." });
+      return;
+    }
   }
 
   const clientProfileMatch = pathname.match(/^\/api\/client-profiles\/([^/]+)$/);
@@ -354,7 +410,8 @@ async function handleApi(req, res, url) {
   }
 
   if (method === "GET" && pathname === "/api/rooms") {
-    const clientId = url.searchParams.get("clientId");
+    const requestedClientId = url.searchParams.get("clientId");
+    const clientId = auth?.user.role === "client" ? auth.clientProfile?.id : requestedClientId;
     const rooms = clientId ? store.filter("rooms", (room) => room.client_id === clientId) : store.all("rooms");
     sendJson(res, 200, { rooms: rooms.map((room) => buildRoomDetails(room.id)) });
     return;
@@ -362,6 +419,10 @@ async function handleApi(req, res, url) {
 
   if (method === "POST" && pathname === "/api/rooms") {
     const body = await readJson(req);
+    if (auth?.user.role === "client" && body.client_id !== auth.clientProfile?.id) {
+      sendJson(res, 403, { error: "You can only create rooms for your own account." });
+      return;
+    }
     const clientProfile = store.find("clientProfiles", body.client_id);
     if (!clientProfile) {
       sendJson(res, 404, { error: "Client profile not found." });
@@ -521,6 +582,7 @@ async function handleApi(req, res, url) {
       sendJson(res, 404, { error: "Room not found for emotion entry." });
       return;
     }
+    if (!ensureClientOwnership(res, auth, room.client_id)) return;
 
     const body = await readJson(req);
     const updatedEntry = await store.update("emotionEntries", entry.id, {
@@ -834,6 +896,7 @@ async function handleApi(req, res, url) {
       sendJson(res, 404, { error: "Assistant item not found." });
       return;
     }
+    if (!ensureClientOwnership(res, auth, item.client_id)) return;
     const body = await readJson(req);
     const updated = await store.update("assistantItems", item.id, normalizeAssistantItem(item.client_id, { ...item, ...body }));
     await syncClientAfterChange(updated.client_id, "assistant.updated");
@@ -847,6 +910,7 @@ async function handleApi(req, res, url) {
       sendJson(res, 404, { error: "Assistant item not found." });
       return;
     }
+    if (!ensureClientOwnership(res, auth, item.client_id)) return;
     const deleted = await store.delete("assistantItems", item.id);
     await syncClientAfterChange(item.client_id, "assistant.updated");
     sendJson(res, 200, { deleted: Boolean(deleted), item });
@@ -860,6 +924,7 @@ async function handleApi(req, res, url) {
       sendJson(res, 404, { error: "Assistant item not found." });
       return;
     }
+    if (!ensureClientOwnership(res, auth, item.client_id)) return;
     sendText(res, 200, buildIcsForItem(item), "text/calendar; charset=utf-8");
     return;
   }
@@ -904,6 +969,7 @@ async function handleApi(req, res, url) {
       sendJson(res, 404, { error: "Warranty not found." });
       return;
     }
+    if (!ensureClientOwnership(res, auth, warranty.client_id)) return;
     const body = await readJson(req);
     const updated = await store.update("warranties", warranty.id, normalizeWarranty(warranty.client_id, { ...warranty, ...body }));
     await syncClientAfterChange(updated.client_id, "warranty.updated");
@@ -917,6 +983,7 @@ async function handleApi(req, res, url) {
       sendJson(res, 404, { error: "Warranty not found." });
       return;
     }
+    if (!ensureClientOwnership(res, auth, warranty.client_id)) return;
     const deleted = await store.delete("warranties", warranty.id);
     await syncClientAfterChange(warranty.client_id, "warranty.updated");
     sendJson(res, 200, { deleted: Boolean(deleted), warranty });
@@ -954,6 +1021,7 @@ async function handleApi(req, res, url) {
       sendJson(res, 404, { error: "Freedom Tool entry not found." });
       return;
     }
+    if (!ensureClientOwnership(res, auth, entry.client_id)) return;
     const body = await readJson(req);
     const updated = await store.update("freedomEntries", entry.id, normalizeFreedomEntry(entry.client_id, { ...entry, ...body }));
     await syncClientAfterChange(updated.client_id, "freedom_tool.updated");
@@ -967,6 +1035,7 @@ async function handleApi(req, res, url) {
       sendJson(res, 404, { error: "Freedom Tool entry not found." });
       return;
     }
+    if (!ensureClientOwnership(res, auth, entry.client_id)) return;
     const deleted = await store.delete("freedomEntries", entry.id);
     await syncClientAfterChange(entry.client_id, "freedom_tool.updated");
     sendJson(res, 200, { deleted: Boolean(deleted), entry });
@@ -980,6 +1049,10 @@ async function handleApi(req, res, url) {
 
   if (method === "POST" && pathname === "/api/community/posts") {
     const body = await readJson(req);
+    if (auth?.user.role === "client" && body.client_id !== auth.clientProfile?.id) {
+      sendJson(res, 403, { error: "You can only create community posts for your own account." });
+      return;
+    }
     const clientProfile = store.find("clientProfiles", body.client_id);
     if (!clientProfile) {
       sendJson(res, 404, { error: "Client profile not found." });
@@ -1008,6 +1081,10 @@ async function handleApi(req, res, url) {
       return;
     }
     const body = await readJson(req);
+    if (auth?.user.role === "client" && body.client_id !== auth.clientProfile?.id) {
+      sendJson(res, 403, { error: "You can only comment as your own account." });
+      return;
+    }
     const clientProfile = store.find("clientProfiles", body.client_id);
     if (!clientProfile) {
       sendJson(res, 404, { error: "Client profile not found." });
@@ -1035,6 +1112,10 @@ async function handleApi(req, res, url) {
     }
     const body = await readJson(req);
     const clientId = body.client_id;
+    if (auth?.user.role === "client" && clientId !== auth.clientProfile?.id) {
+      sendJson(res, 403, { error: "You can only rate posts as your own account." });
+      return;
+    }
     if (!store.find("clientProfiles", clientId)) {
       sendJson(res, 404, { error: "Client profile not found." });
       return;
@@ -1050,12 +1131,152 @@ async function handleApi(req, res, url) {
   sendJson(res, 404, { error: "API route not found." });
 }
 
-function sessionPayload(user, clientProfile) {
+async function sessionPayload(user, clientProfile, token = null) {
+  const sessionToken = token || (user ? await createSession(user.id) : null);
   return {
     user: publicUser(user),
     clientProfile: clientProfile || null,
-    permissions: clientProfile ? getMembershipPermissions(clientProfile.membership_level) : null
+    permissions: clientProfile ? getMembershipPermissions(clientProfile.membership_level) : null,
+    token: sessionToken || undefined
   };
+}
+
+async function createSession(userId) {
+  const token = createOpaqueToken();
+  await store.create(
+    "sessions",
+    {
+      user_id: userId,
+      token_hash: hashOpaqueToken(token),
+      expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
+      last_seen_at: new Date().toISOString()
+    },
+    "session"
+  );
+  return token;
+}
+
+function authenticateRequest(req) {
+  const authorization = String(req.headers.authorization || "");
+  const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+  if (!token) return null;
+
+  const session = store.findBy("sessions", (candidate) => candidate.token_hash === hashOpaqueToken(token));
+  if (!session || session.revoked_at || new Date(session.expires_at).getTime() <= Date.now()) return null;
+
+  const user = store.find("users", session.user_id);
+  const clientProfile = user ? store.findBy("clientProfiles", (profile) => profile.user_id === user.id) : null;
+  if (!user) return null;
+
+  return { session, user, clientProfile };
+}
+
+function isStaffRole(role) {
+  return role === "admin" || role === "emily";
+}
+
+function ensureClientOwnership(res, auth, clientId) {
+  if (auth?.user.role === "client" && auth.clientProfile?.id !== clientId) {
+    sendJson(res, 403, { error: "You can only access your own client information." });
+    return false;
+  }
+  return true;
+}
+
+function isAdminOnlyPath(pathname) {
+  return (
+    pathname === "/api/dashboard/admin" ||
+    pathname === "/api/tasks" ||
+    pathname.startsWith("/api/client-profiles/") ||
+    pathname.startsWith("/api/ghl/") ||
+    /\/api\/rooms\/[^/]+\/(emily-review|send-recommendation)$/.test(pathname)
+  );
+}
+
+function clientIdFromPath(pathname) {
+  return (
+    pathname.match(/^\/api\/dashboard\/client\/([^/]+)$/)?.[1] ||
+    pathname.match(/^\/api\/(assistant|warranties|freedom)\/client\/([^/]+)/)?.[2] ||
+    null
+  );
+}
+
+function portalSecretMatches(req, envKey = "PORTAL_SSO_SECRET") {
+  const expected = String(process.env[envKey] || "");
+  const provided = String(req.headers["x-btbv-portal-secret"] || req.headers["x-ghl-webhook-secret"] || "");
+  if (!expected || !provided) return false;
+  const expectedHash = Buffer.from(hashOpaqueToken(expected));
+  const providedHash = Buffer.from(hashOpaqueToken(provided));
+  return expectedHash.length === providedHash.length && timingSafeEqual(expectedHash, providedHash);
+}
+
+async function createPortalToken(req, res) {
+  const body = await readJson(req);
+  const email = String(body.email || "").trim().toLowerCase();
+  const phone = String(body.phone || "").trim();
+  const clientProfile =
+    (body.client_id && store.find("clientProfiles", body.client_id)) ||
+    (email && store.findBy("clientProfiles", (profile) => store.find("users", profile.user_id)?.email.toLowerCase() === email)) ||
+    (phone && store.findBy("clientProfiles", (profile) => String(profile.phone || "").trim() === phone));
+
+  if (!clientProfile) {
+    sendJson(res, 404, { error: "Client profile not found. Provide client_id, email, or phone." });
+    return;
+  }
+
+  const user = store.find("users", clientProfile.user_id);
+  if (!user || user.role !== "client") {
+    sendJson(res, 400, { error: "Portal handoff is only available for client accounts." });
+    return;
+  }
+
+  const token = createOpaqueToken();
+  const expiresAt = new Date(Date.now() + PORTAL_SSO_TOKEN_TTL_MS).toISOString();
+  await store.create(
+    "portalTokens",
+    {
+      client_id: clientProfile.id,
+      token_hash: hashOpaqueToken(token),
+      expires_at: expiresAt,
+      used_at: null,
+      source: String(body.source || "highlevel")
+    },
+    "portal_token"
+  );
+
+  const baseUrl = portalBaseUrl(req);
+  sendJson(res, 201, {
+    client_id: clientProfile.id,
+    expires_at: expiresAt,
+    portal_url: `${baseUrl}/portal?portal_token=${encodeURIComponent(token)}`
+  });
+}
+
+async function consumePortalToken(req, res, url) {
+  const token = String(url.searchParams.get("portal_token") || "").trim();
+  const tokenRecord = token ? store.findBy("portalTokens", (candidate) => candidate.token_hash === hashOpaqueToken(token)) : null;
+  if (!tokenRecord || tokenRecord.used_at || new Date(tokenRecord.expires_at).getTime() <= Date.now()) {
+    sendJson(res, 401, { error: "This portal link is invalid or has expired. Request a new link." });
+    return;
+  }
+
+  const clientProfile = store.find("clientProfiles", tokenRecord.client_id);
+  const user = clientProfile ? store.find("users", clientProfile.user_id) : null;
+  if (!clientProfile || !user || user.role !== "client") {
+    sendJson(res, 401, { error: "This portal link is not connected to an active client account." });
+    return;
+  }
+
+  await store.update("portalTokens", tokenRecord.id, { used_at: new Date().toISOString() });
+  sendJson(res, 200, await sessionPayload(user, clientProfile));
+}
+
+function portalBaseUrl(req) {
+  const configured = String(process.env.PORTAL_BASE_URL || process.env.APP_DOMAIN || "").replace(/\/$/, "");
+  if (configured.startsWith("http://") || configured.startsWith("https://")) return configured;
+  const forwardedProtocol = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  const protocol = forwardedProtocol || (process.env.NODE_ENV === "production" ? "https" : "http");
+  return `${protocol}://${req.headers.host || `${host}:${port}`}`;
 }
 
 function buildDashboardForClient(clientId) {
@@ -1691,18 +1912,37 @@ async function serveStatic(req, res, pathname) {
     const file = await readFile(filePath);
     res.writeHead(200, {
       "Content-Type": contentType(filePath),
-      "Cache-Control": "no-store"
+      "Cache-Control": "no-store",
+      ...portalFrameHeaders()
     });
     res.end(file);
   } catch (error) {
     if (error.code === "ENOENT") {
       const file = await readFile(path.join(publicDir, "index.html"));
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        ...portalFrameHeaders()
+      });
       res.end(file);
       return;
     }
     throw error;
   }
+}
+
+function portalFrameHeaders() {
+  const ancestors = String(
+    process.env.PORTAL_ALLOWED_FRAME_ANCESTORS ||
+      "https://app.gohighlevel.com https://*.gohighlevel.com https://*.leadconnectorhq.com https://*.msgsndr.com"
+  )
+    .trim()
+    .replace(/\s+/g, " ");
+
+  return {
+    "Content-Security-Policy": `frame-ancestors 'self' ${ancestors};`,
+    "Referrer-Policy": "strict-origin-when-cross-origin"
+  };
 }
 
 function contentType(filePath) {

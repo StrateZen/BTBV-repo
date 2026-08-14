@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { hashPassword, verifyPassword } from "../domain/auth.mjs";
+import { createOpaqueToken, hashOpaqueToken, hashPassword, verifyPassword } from "../domain/auth.mjs";
 import { GHL_FIELD_MAP, getMembershipPermissions } from "../domain/constants.mjs";
 import { generateRoomRecommendation } from "../domain/recommendations.mjs";
 import {
@@ -49,6 +49,14 @@ test("password hashing verifies correct passwords only", () => {
 
   assert.equal(verifyPassword("demo123", stored), true);
   assert.equal(verifyPassword("wrong-password", stored), false);
+});
+
+test("portal tokens are opaque and hash consistently", () => {
+  const token = createOpaqueToken();
+
+  assert.equal(typeof token, "string");
+  assert.equal(hashOpaqueToken(token), hashOpaqueToken(token));
+  assert.notEqual(hashOpaqueToken(token), hashOpaqueToken(`${token}-different`));
 });
 
 test("room transformation score combines completion and score movement", () => {
@@ -366,7 +374,7 @@ test("seed migration backfills staff admin, timezones, internal notes, and remin
   const { data, changed } = migrateSeedData(legacy);
 
   assert.equal(changed, true);
-  assert.equal(data.meta.version, 10);
+  assert.equal(data.meta.version, 11);
   assert.ok(data.users.find((user) => user.email === "staff@example.com" && user.role === "admin"));
   assert.equal(data.clientProfiles[0].timezone, "America/Phoenix");
   assert.match(data.clientProfiles[0].internal_notes, /gentle follow-up/i);

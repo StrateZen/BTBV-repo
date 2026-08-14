@@ -1,5 +1,13 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
+export function createOpaqueToken(bytes = 32) {
+  return randomBytes(bytes).toString("base64url");
+}
+
+export function hashOpaqueToken(token = "") {
+  return createHash("sha256").update(String(token)).digest("hex");
+}
+
 export function hashPassword(password, salt = randomBytes(16).toString("hex")) {
   const digest = createHash("sha256").update(`${salt}:${password}`).digest("hex");
   return `${salt}:${digest}`;

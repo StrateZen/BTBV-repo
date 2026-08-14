@@ -19,7 +19,9 @@ const COLLECTIONS = [
   "warranties",
   "freedomEntries",
   "communityPosts",
-  "communityComments"
+  "communityComments",
+  "sessions",
+  "portalTokens"
 ];
 
 export class JsonStore {

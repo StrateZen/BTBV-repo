@@ -200,6 +200,16 @@ img {
   margin: 0 auto;
 }
 
+.form-error {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(200, 107, 69, 0.35);
+  border-radius: 8px;
+  color: #8b442e;
+  background: rgba(200, 107, 69, 0.1);
+  font-size: 0.9rem;
+}
+
 .section-title {
   display: flex;
   align-items: end;

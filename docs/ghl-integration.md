@@ -101,3 +101,7 @@ Contact resolution order is:
 2. GHL duplicate lookup by email
 3. GHL duplicate lookup by phone
 4. Upsert create if no contact is found
+
+## HighLevel Client Portal
+
+The app can be added to HighLevel as an embedded Custom Menu Link. Use the public HTTPS `/portal` URL and configure the link to open as an embedded page. See [highlevel-client-portal.md](highlevel-client-portal.md) for the iframe headers, session handoff, environment values, and one-time portal link procedure.
