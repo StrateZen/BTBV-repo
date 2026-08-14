@@ -84,7 +84,20 @@ document.addEventListener("click", async (event) => {
     if (action === "select-room") {
       state.selectedRoomId = actionEl.dataset.roomId;
       await loadRoomDetails(state.selectedRoomId);
+      state.activeModal = { type: "room-detail", id: state.selectedRoomId };
       render();
+    }
+
+    if (action === "score-step") {
+      const input = actionEl.closest(".score-stepper")?.querySelector("input[type=number]");
+      if (input) {
+        const direction = actionEl.dataset.direction === "up" ? 1 : -1;
+        const minimum = Number(input.min || 1);
+        const maximum = Number(input.max || 10);
+        const current = normalizeTenPointFieldValue(input.value, minimum);
+        input.value = String(Math.max(minimum, Math.min(maximum, current + direction)));
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
     }
 
     if (action === "start-room") {
@@ -1061,10 +1074,6 @@ function renderClientApp() {
                       ${dashboard.roomCards.map((room) => renderRoomCard(room, room.id === selectedCard?.id)).join("")}
                     </div>
                   </section>
-
-                  <aside class="room-detail-rail">
-                    ${renderRoomDetail(selectedRoom)}
-                  </aside>
                 </section>
               `
         }
@@ -1791,13 +1800,9 @@ function renderAfterForm(roomId) {
       <label>After photos <input name="after_photos" type="file" accept="image/*" multiple /></label>
       <label>After emotions <input name="emotions" placeholder="Calm, clear, peaceful" required /></label>
       <div class="form-grid">
-        <label>Stress score <input name="stress_score" type="number" min="1" max="10" value="3" required /></label>
-        <label>Clutter score <input name="clutter_score" type="number" min="1" max="10" value="3" required /></label>
-        <label class="full">
-          Energy misalignment score
-          <input name="energy_alignment_score" type="number" min="1" max="10" value="${defaultEnergyMisalignment}" required />
-          <span class="field-hint">1 = highly aligned and supportive. 10 = draining, disconnected, or off.</span>
-        </label>
+        ${renderScoreInput("Stress score", "stress_score", 3, "1 = calm and easy in the body. 10 = highly stressful or overwhelming.")}
+        ${renderScoreInput("Clutter score", "clutter_score", 3, "1 = clear and contained. 10 = visually heavy or difficult to manage.")}
+        ${renderScoreInput("Energy misalignment score", "energy_alignment_score", defaultEnergyMisalignment, "1 = highly aligned and supportive. 10 = draining, disconnected, or off.", true)}
       </div>
       <label>Notes <textarea name="client_comments"></textarea></label>
       <button class="btn sage" type="submit" ${state.busy ? "disabled" : ""}>Save after update</button>
@@ -2072,10 +2077,18 @@ function renderRoomIntakeModalForm(dashboard, options = {}) {
 }
 
 function renderScoreInput(label, name, value, hint, full = false) {
+  const normalizedValue = normalizeTenPointFieldValue(value, 5);
+  const safeLabel = escapeHtml(label);
   return `
     <label class="${full ? "full" : ""}">
-      ${escapeHtml(label)}
-      <input name="${escapeHtml(name)}" type="number" min="1" max="10" value="${escapeHtml(value)}" required />
+      ${safeLabel}
+      <span class="score-stepper">
+        <input name="${escapeHtml(name)}" type="number" inputmode="numeric" min="1" max="10" value="${normalizedValue}" required />
+        <span class="score-stepper-controls" aria-label="Change ${safeLabel}">
+          <button class="score-stepper-button" data-action="score-step" data-direction="up" type="button" aria-label="Increase ${safeLabel}">▲</button>
+          <button class="score-stepper-button" data-action="score-step" data-direction="down" type="button" aria-label="Decrease ${safeLabel}">▼</button>
+        </span>
+      </span>
       <span class="field-hint">${escapeHtml(hint)}</span>
     </label>
   `;
@@ -2997,6 +3010,15 @@ function renderActiveModal(dashboard) {
     showHeader = false;
     modalClass = "modal-panel-wide";
     content = renderRoomIntakeModalForm(dashboard);
+  }
+
+  if (modal.type === "room-detail") {
+    const room = state.roomDetails[modal.id] || dashboard?.roomCards?.find((candidate) => candidate.id === modal.id);
+    title = room?.room_name || "Room details";
+    modalClass = "modal-panel-wide room-detail-modal-panel";
+    content = room
+      ? `<div class="room-detail-modal-content">${renderRoomDetail(room)}</div>`
+      : `<div class="empty-state">Room details are not available yet.</div>`;
   }
 
   if (modal.type === "assistant-add") {

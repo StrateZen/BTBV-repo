@@ -2290,7 +2290,7 @@ textarea:focus {
 
 .room-browser-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 380px;
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
   align-items: start;
 }
@@ -2432,9 +2432,65 @@ textarea:focus {
   gap: 8px;
 }
 
-.room-detail-rail {
-  position: sticky;
-  top: 88px;
+.score-stepper {
+  display: grid;
+  width: min(100%, 240px);
+  grid-template-columns: minmax(0, 1fr) 48px;
+  margin-top: 4px;
+}
+
+.score-stepper input {
+  min-width: 0;
+  min-height: 48px;
+  border-radius: 8px 0 0 8px;
+  text-align: center;
+  font-size: 1.08rem;
+  font-weight: 800;
+  -moz-appearance: textfield;
+}
+
+.score-stepper input::-webkit-outer-spin-button,
+.score-stepper input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
+.score-stepper-controls {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+}
+
+.score-stepper-button {
+  min-height: 24px;
+  border: 1px solid var(--line);
+  border-left: 0;
+  padding: 0;
+  color: var(--ink);
+  background: var(--warm-wash-2);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+  touch-action: manipulation;
+}
+
+.score-stepper-button:first-child {
+  border-radius: 0 8px 0 0;
+}
+
+.score-stepper-button:last-child {
+  border-top: 0;
+  border-radius: 0 0 8px 0;
+}
+
+.score-stepper-button:hover,
+.score-stepper-button:focus-visible {
+  color: var(--sage-deep);
+  background: var(--brand-wash);
+}
+
+.score-stepper-button:active {
+  background: var(--gold-wash);
 }
 
 .room-detail-panel {
@@ -2768,6 +2824,28 @@ textarea:focus {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.room-detail-modal-panel {
+  padding: 0;
+}
+
+.room-detail-modal-panel > .section-title {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 18px 24px;
+  border-bottom: 1px solid rgba(216, 201, 180, 0.72);
+}
+
+.room-detail-modal-content {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.room-detail-modal-content .room-detail-panel {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .intake-wizard-form {
@@ -3264,7 +3342,6 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 
-  .room-detail-rail,
   .admin-client-explorer {
     position: static;
   }
